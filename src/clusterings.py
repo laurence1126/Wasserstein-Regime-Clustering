@@ -107,6 +107,12 @@ class WassersteinKMeans:
         if iteration == self.max_iter:
             print(f"Warning: WK-means algorithm may not converge after {self.max_iter} iterations")
 
+        # Sort the labels by variance of centroid
+        centroid_vars = np.var(self.centroids_, axis=1)
+        sorted_indices = np.argsort(centroid_vars)
+        self.centroids_ = [self.centroids_[i] for i in sorted_indices]
+        self.labels_ = np.array([np.where(sorted_indices == lbl)[0][0] for lbl in self.labels_])
+
         return WKMeansResult(centroids=np.array(self.centroids_), labels=self.labels_, losses=losses, iter=iteration)
 
     def predict(self, segments: List[np.ndarray]) -> np.ndarray:
@@ -268,6 +274,12 @@ class MomentKMeans:
             C = newC
             if shift < self.tol:
                 break
+
+        # Sort the labels by variance of centroid
+        centroid_vars = np.var(C, axis=1)
+        sorted_indices = np.argsort(centroid_vars)
+        C = np.array([C[i] for i in sorted_indices])
+        labels = np.array([np.where(sorted_indices == lbl)[0][0] for lbl in labels])
 
         self.centroids_ = C
         self.labels_ = labels

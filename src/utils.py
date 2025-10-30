@@ -142,6 +142,7 @@ def plot_regimes_over_price(
 
         # Average cluster assignment where segments overlap
         avg_labels = np.divide(colors, counts, out=np.zeros_like(colors), where=counts > 0)
+        avg_labels = np.round(avg_labels).astype(int)
 
         # Plot price series, coloring by cluster
         scatter = ax.scatter(times, prices, c=avg_labels, cmap=cmap, s=10, alpha=0.8)
