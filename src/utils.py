@@ -153,4 +153,6 @@ def plot_regimes_over_price(
     ax.set_ylabel("Price")
     cbar = plt.colorbar(scatter, ax=ax, ticks=range(len(set(labels))))
     cbar.set_label("Cluster")
+    ax.grid(alpha=0.25)
+    plt.tight_layout()
     plt.show()

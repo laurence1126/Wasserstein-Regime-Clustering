@@ -51,7 +51,7 @@ class WassersteinKMeans:
         N = min(len(alpha), len(beta))
         return (np.mean(np.abs(alpha[:N] - beta[:N]) ** p)) ** (1 / p)
 
-    def _wasserstein_barycenter(self, samples, p=2):
+    def _wasserstein_barycenter(self, samples: np.ndarray, p=2):
         """
         Compute the Wasserstein barycenter (centroid) of a list of 1D empirical samples.
         - For p=1: coordinate-wise median of order statistics.
@@ -65,35 +65,35 @@ class WassersteinKMeans:
         else:
             return np.mean(S, axis=0)
 
-    def fit(self, X):
+    def fit(self, segments: List[np.ndarray]) -> WKMeansResult:
         """
         Run WK-means on a list of empirical distributions (arrays of equal length).
         """
-        n_samples = len(X)
+        n_samples = len(segments)
         if n_samples < self.n_clusters:
             raise ValueError("Number of samples must be >= number of clusters.")
 
         # Random initialization of centroids
-        self.centroids_ = [X[i] for i in np.random.choice(n_samples, self.n_clusters, replace=False)]
+        self.centroids_ = [segments[i] for i in np.random.choice(n_samples, self.n_clusters, replace=False)]
         self.labels_ = np.zeros(n_samples, dtype=int)
 
         losses = []
         iteration = 0
         while iteration < self.max_iter:
             # Assignment step
-            for i, sample in enumerate(X):
+            for i, sample in enumerate(segments):
                 distances = [self._wasserstein_empirical(sample, c, p=self.p) for c in self.centroids_]
                 self.labels_[i] = np.argmin(distances)
 
             # Update step
             new_centroids = []
             for j in range(self.n_clusters):
-                cluster_members = [X[i] for i in range(n_samples) if self.labels_[i] == j]
+                cluster_members = [segments[i] for i in range(n_samples) if self.labels_[i] == j]
                 if cluster_members:
                     new_centroids.append(self._wasserstein_barycenter(cluster_members, p=self.p))
                 else:
                     # Handle empty cluster by reinitializing
-                    new_centroids.append(random.choice(X))
+                    new_centroids.append(random.choice(segments))
 
             # Check convergence
             shift = sum(self._wasserstein_empirical(self.centroids_[j], new_centroids[j], p=self.p) for j in range(self.n_clusters))
@@ -109,13 +109,22 @@ class WassersteinKMeans:
 
         return WKMeansResult(centroids=np.array(self.centroids_), labels=self.labels_, losses=losses, iter=iteration)
 
-    def predict(self, X):
+    def predict(self, segments: List[np.ndarray]) -> np.ndarray:
         """
         Assign new samples to clusters.
         """
+        if self.centroids_ is None:
+            raise RuntimeError("Model not fitted yet.")
+        try:
+            l = len(segments[0])
+            if l != len(self.centroids_[0]):
+                raise ValueError("Input samples must have the same length as centroids.")
+        except TypeError:
+            raise ValueError("Input X must be a list of samples.")
+
         labels = []
-        for sample in X:
-            distances = [self.wasserstein_empirical(sample, c, p=self.p) for c in self.centroids_]
+        for sample in segments:
+            distances = [self._wasserstein_empirical(sample, c, p=self.p) for c in self.centroids_]
             labels.append(np.argmin(distances))
         return np.array(labels)
 
@@ -267,6 +276,13 @@ class MomentKMeans:
     def predict(self, segments: List[np.ndarray]) -> np.ndarray:
         if self.centroids_ is None:
             raise RuntimeError("Model not fitted yet.")
+        try:
+            l = len(segments[0])
+            if l != len(self.centroids_[0]):
+                raise ValueError("Input samples must have the same length as centroids.")
+        except TypeError:
+            raise ValueError("Input X must be a list of samples.")
+
         F = self._build_features(segments)
         d2 = ((F[:, None, :] - self.centroids_[None, :, :]) ** 2).sum(axis=2)
         return d2.argmin(axis=1)
