@@ -30,7 +30,7 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 ### `src/utils.py`
 
 - `segment_time_series(series, window, step)`: slices a pandas Series into overlapping windows and returns a Series with segment-end timestamps.
-- `segment_stats`, `scatter_mean_variance`, `plot_regimes_over_price`: statistics/visualization helpers. `plot_regimes_over_price` now asof-aligns label Series to price timestamps.
+- `segment_stats`, `scatter_mean_variance`, `plot_regimes_over_price`: statistics/visualization helpers. Plots use a professional Tol palette (blue/red/green) and can highlight specific regimes (e.g., `plot_regimes_over_price(..., highlight_clusters=[0,2], highlight_min_width=5)`).
 
 ### `src/MMD.py`
 

@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Literal
+from typing import Iterable, List, Optional, Literal, Union
 from hmmlearn.hmm import GaussianHMM
 import random
 
@@ -10,7 +10,7 @@ import random
 @dataclass
 class WKMeansResult:
     centroids: np.ndarray  # shape (k, p)
-    labels: np.ndarray  # shape (n,)
+    labels: Union[np.ndarray, pd.Series]  # shape (n,)
     losses: List[float]
     iter: int
 
@@ -74,10 +74,7 @@ class WassersteinKMeans:
         else:
             index = None
             iterable = segments
-        prepared = []
-        for seg in iterable:
-            arr = np.asarray(seg, dtype=float).ravel()
-            prepared.append(arr)
+        prepared = [np.asarray(seg, dtype=float).ravel() for seg in iterable]
         return prepared, index
 
     def fit(self, segments: List[np.ndarray], initial_centroids: Optional[List[np.ndarray]] = None) -> WKMeansResult:
@@ -170,11 +167,13 @@ class WassersteinKMeans:
             raise RuntimeError("Model not fitted yet.")
 
         plt.figure(figsize=(8, 6))
+        palette = {0: "#4477AA", 1: "#228833", 2: "#EE6677", 3: "#CCBB44", 4: "#66CCEE", 5: "#AA3377", 6: "#BBBBBB"}
         cmap = plt.get_cmap("tab10", len(self.centroids_))
         for i, c in enumerate(self.centroids_):
             sorted_c = np.sort(c)
             cdf = np.arange(1, len(c) + 1) / len(c)
-            plt.plot(sorted_c, cdf, label=f"Centroid {i}", color=cmap(i))
+            color = palette.get(i, cmap(i))
+            plt.plot(sorted_c, cdf, label=f"Centroid {i}", color=color)
 
         plt.title(title)
         plt.xlabel("Value")
@@ -188,7 +187,7 @@ class WassersteinKMeans:
 @dataclass
 class MKMeansResult:
     centroids: np.ndarray  # shape (k, p)
-    labels: np.ndarray  # shape (n_samples,)
+    labels: Union[np.ndarray, pd.Series]
     losses: List[float]  # L2 shift per iteration
     iters: int
 
@@ -231,6 +230,17 @@ class MomentKMeans:
         self.labels_: Optional[np.ndarray] = None
         self._features_: Optional[np.ndarray] = None  # cached feature matrix (n, p)
 
+    @staticmethod
+    def _prepare_segments(segments: Iterable) -> tuple[List[np.ndarray], Optional[pd.Index]]:
+        if isinstance(segments, pd.Series):
+            index = segments.index
+            iterable = segments.values
+        else:
+            index = None
+            iterable = segments
+        prepared = [np.asarray(seg, dtype=float).ravel() for seg in iterable]
+        return prepared, index
+
     def _moments_vector(self, x: np.ndarray, p: int) -> np.ndarray:
         """
         First p raw moments of a 1D sample x (finite-length empirical distribution).
@@ -268,6 +278,7 @@ class MomentKMeans:
         return np.vstack(centroids)
 
     def fit(self, segments: List[np.ndarray]) -> MKMeansResult:
+        segments, index = self._prepare_segments(segments)
         if len(segments) < self.k:
             raise ValueError("Number of samples must be >= n_clusters.")
         F = self._build_features(segments)  # (n, p)
@@ -306,29 +317,34 @@ class MomentKMeans:
 
         self.centroids_ = C
         self.labels_ = labels
-        return MKMeansResult(C, labels, losses, it)
+        label_output: Union[np.ndarray, pd.Series]
+        if index is not None:
+            label_output = pd.Series(labels, index=index)
+        else:
+            label_output = labels
+        return MKMeansResult(C, label_output, losses, it)
 
-    def predict(self, segments: List[np.ndarray]) -> np.ndarray:
+    def predict(self, segments: List[np.ndarray]) -> Union[np.ndarray, pd.Series]:
         if self.centroids_ is None:
             raise RuntimeError("Model not fitted yet.")
-        try:
-            l = len(segments[0])
-            if l != len(self.centroids_[0]):
-                raise ValueError("Input samples must have the same length as centroids.")
-        except TypeError:
-            raise ValueError("Input X must be a list of samples.")
+        segments, index = self._prepare_segments(segments)
+        if len(segments[0]) != len(self.centroids_[0]):
+            raise ValueError("Input samples must have the same length as centroids.")
 
         F = self._build_features(segments)
         d2 = ((F[:, None, :] - self.centroids_[None, :, :]) ** 2).sum(axis=2)
-        return d2.argmin(axis=1)
+        preds = d2.argmin(axis=1)
+        if index is not None:
+            return pd.Series(preds, index=index)
+        return preds
 
 
 @dataclass
 class HMMClusteringResult:
-    labels: np.ndarray  # shape (n_samples,)
-    means: List[float]  # means of hidden states
-    stds: List[float]  # stds of hidden states
-    periods: List[int]  # day indices for each sample
+    labels: Union[np.ndarray, pd.Series]
+    means: List[float]
+    stds: List[float]
+    periods: List[int]
 
 
 class HMMClustering:
@@ -339,24 +355,45 @@ class HMMClustering:
         self.labels_: Optional[np.ndarray] = None
         self.model_: Optional[GaussianHMM] = None
 
+    def _prepare_observations(self, X):
+        if isinstance(X, pd.Series):
+            data = X.dropna()
+            return data.to_numpy().reshape(-1, 1), data.index
+        elif isinstance(X, pd.DataFrame):
+            data = X.dropna()
+            return data.to_numpy(), data.index
+        arr = np.asarray(X, dtype=float)
+        arr = arr.reshape(-1, 1) if arr.ndim == 1 else arr
+        return arr, None
+
     def fit(self, X) -> HMMClusteringResult:
+        obs, index = self._prepare_observations(X)
         model = GaussianHMM(n_components=self.n_states, covariance_type=self.covariance_type, random_state=self.random_state)
-        model.fit(X)
-        hidden_states = model.predict(X)
+        model.fit(obs)
+        hidden_states = model.predict(obs)
 
         means, stds, periods = [], [], []
         for i in range(self.n_states):
-            state_data = X[hidden_states == i]
+            state_data = obs[hidden_states == i]
             means.append(np.mean(state_data))
             stds.append(np.std(state_data))
             periods.append(len(state_data))
 
+        if index is not None:
+            label_output: Union[np.ndarray, pd.Series] = pd.Series(hidden_states, index=index)
+        else:
+            label_output = hidden_states
+
         self.labels_ = hidden_states
         self.model_ = model
 
-        return HMMClusteringResult(labels=hidden_states, means=means, stds=stds, periods=periods)
+        return HMMClusteringResult(labels=label_output, means=means, stds=stds, periods=periods)
 
-    def predict(self, X) -> np.ndarray:
+    def predict(self, X) -> Union[np.ndarray, pd.Series]:
         if self.model_ is None:
             raise RuntimeError("Model not fitted yet.")
-        return self.model_.predict(X)
+        obs, index = self._prepare_observations(X)
+        preds = self.model_.predict(obs)
+        if index is not None:
+            return pd.Series(preds, index=index)
+        return preds
