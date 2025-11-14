@@ -1,7 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 from dataclasses import dataclass
-from typing import List, Optional, Literal
+from typing import Iterable, List, Optional, Literal
 from hmmlearn.hmm import GaussianHMM
 import random
 
@@ -65,16 +66,36 @@ class WassersteinKMeans:
         else:
             return np.mean(S, axis=0)
 
-    def fit(self, segments: List[np.ndarray]) -> WKMeansResult:
+    @staticmethod
+    def _prepare_segments(segments: Iterable) -> tuple[List[np.ndarray], Optional[pd.Index]]:
+        if isinstance(segments, pd.Series):
+            index = segments.index
+            iterable = segments.values
+        else:
+            index = None
+            iterable = segments
+        prepared = []
+        for seg in iterable:
+            arr = np.asarray(seg, dtype=float).ravel()
+            prepared.append(arr)
+        return prepared, index
+
+    def fit(self, segments: List[np.ndarray], initial_centroids: Optional[List[np.ndarray]] = None) -> WKMeansResult:
         """
         Run WK-means on a list of empirical distributions (arrays of equal length).
         """
+        segments, index = self._prepare_segments(segments)
         n_samples = len(segments)
         if n_samples < self.n_clusters:
             raise ValueError("Number of samples must be >= number of clusters.")
 
-        # Random initialization of centroids
-        self.centroids_ = [segments[i] for i in np.random.choice(n_samples, self.n_clusters, replace=False)]
+        # Allow for warm-start training
+        if initial_centroids is not None:
+            if len(initial_centroids) != self.n_clusters:
+                raise ValueError("initial_centroids must have length equal to n_clusters")
+            self.centroids_ = [np.array(c, copy=True) for c in initial_centroids]
+        else:
+            self.centroids_ = [segments[i] for i in np.random.choice(n_samples, self.n_clusters, replace=False)]
         self.labels_ = np.zeros(n_samples, dtype=int)
 
         losses = []
@@ -112,6 +133,8 @@ class WassersteinKMeans:
         sorted_indices = np.argsort(centroid_vars)
         self.centroids_ = [self.centroids_[i] for i in sorted_indices]
         self.labels_ = np.array([np.where(sorted_indices == lbl)[0][0] for lbl in self.labels_])
+        if index is not None:
+            self.labels_ = pd.Series(self.labels_, index=index)
 
         return WKMeansResult(centroids=np.array(self.centroids_), labels=self.labels_, losses=losses, iter=iteration)
 
@@ -121,18 +144,18 @@ class WassersteinKMeans:
         """
         if self.centroids_ is None:
             raise RuntimeError("Model not fitted yet.")
-        try:
-            l = len(segments[0])
-            if l != len(self.centroids_[0]):
-                raise ValueError("Input samples must have the same length as centroids.")
-        except TypeError:
-            raise ValueError("Input X must be a list of samples.")
+        segments, index = self._prepare_segments(segments)
+        if len(segments[0]) != len(self.centroids_[0]):
+            raise ValueError("Input samples must have the same length as centroids.")
 
         labels = []
         for sample in segments:
             distances = [self._wasserstein_empirical(sample, c, p=self.p) for c in self.centroids_]
             labels.append(np.argmin(distances))
-        return np.array(labels)
+        labels = np.array(labels)
+        if index is not None:
+            return pd.Series(labels, index=index)
+        return labels
 
     def plot_centroids_cdf(self, title="WK-means Centroids CDFs"):
         """

@@ -1,16 +1,17 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from typing import Iterable, List, Optional, Union
 
 
-def segment_time_series(series: np.ndarray, window: int, step: int) -> List[np.ndarray]:
+def segment_time_series(series: pd.Series, window: int, step: int) -> pd.Series:
     """
     Segment a 1D time series into overlapping windows.
 
     Parameters
     ----------
-    series : array-like
-        Input time series (e.g., log-returns).
+    series : pandas.Series
+        Input time series (e.g., log-returns) with a datetime-like index.
     window : int
         Length of each segment (h1).
     step : int
@@ -19,16 +20,22 @@ def segment_time_series(series: np.ndarray, window: int, step: int) -> List[np.n
         - step = window => disjoint segments
     Returns
     -------
-    segments : list of np.ndarray
-        List of segments, each of length `window`.
+    pandas.Series
+        Series whose values are numpy arrays (segments) and index is the
+        timestamp corresponding to the end of each segment.
     """
-    series = np.asarray(series, dtype=float).ravel()
+    if not isinstance(series, pd.Series):
+        series = pd.Series(series)
+    series = series.astype(float)
     n = len(series)
-    segments = []
+    windows: List[np.ndarray] = []
+    idx: List[pd.Timestamp] = []
     for start in range(0, n - window + 1, step):
-        segment = series[start : start + window]
-        segments.append(segment)
-    return segments
+        end = start + window
+        segment = series.iloc[start:end].to_numpy(copy=True)
+        windows.append(segment)
+        idx.append(series.index[end - 1])
+    return pd.Series(windows, index=pd.Index(idx, name="segment_end"))
 
 
 def segment_stats(segments: List[np.ndarray], use_std=True):
@@ -105,7 +112,6 @@ def plot_regimes_over_price(
     window: int,
     step: int,
     title="Market Regimes",
-    times=None,
     highlight_clusters: Optional[Union[int, Iterable[int], str]] = None,
     highlight_color: str = "red",
     highlight_alpha: float = 0.15,
@@ -151,11 +157,17 @@ def plot_regimes_over_price(
     highlight_min_width : int
         Minimum number of samples a highlighted span must cover; narrower regions are skipped (default 1 sample).
     """
-    prices = np.asarray(prices)
-    if times is None:
+
+    if isinstance(prices, pd.Series):
+        times = prices.index
+    else:
         times = np.arange(len(prices))
-    times = np.asarray(times)
-    fig, ax = plt.subplots(figsize=(12, 5))
+    prices = np.asarray(prices)
+
+    if isinstance(labels, pd.Series):
+        labels = labels.values
+
+    _, ax = plt.subplots(figsize=(12, 5))
 
     unique_labels = np.unique(labels)
     cmap = plt.get_cmap("tab10", len(unique_labels))
@@ -164,7 +176,7 @@ def plot_regimes_over_price(
     counts = np.zeros(len(prices))
 
     effective_highlight_window = None
-    if segments:
+    if segments is not None and len(segments):
         effective_highlight_window = highlight_window or window
         if effective_highlight_window <= 0:
             raise ValueError("highlight_window must be positive.")
@@ -277,9 +289,9 @@ def plot_regimes_over_price(
         targets = _prepare_target_set(highlight_clusters, valid_label_values)
         if targets:
             spans = []
-            span_times = times if segments else point_times
+            span_times = times if len(segments) else point_times
             if highlight_score_threshold is not None:
-                if segments:
+                if len(segments):
                     target_counts = np.zeros(len(prices), dtype=float)
                     max_idx = len(prices)
                     for idx, lab in enumerate(labels):
@@ -299,7 +311,7 @@ def plot_regimes_over_price(
                     mask = np.isfinite(scores) & (scores >= highlight_score_threshold)
                     spans = _mask_to_spans(mask)
             else:
-                if segments:
+                if len(segments):
                     intervals = []
                     max_idx = len(prices) - 1
                     for idx, lab in enumerate(labels):
@@ -310,7 +322,7 @@ def plot_regimes_over_price(
                     spans = _merge_intervals(intervals)
                 else:
                     spans = _contiguous_spans(point_labels, coverage_mask, targets)
-                span_times = times if segments else point_times
+                span_times = times if len(segments) else point_times
 
             for start_idx, end_idx in spans:
                 if (end_idx - start_idx + 1) < highlight_min_width:
@@ -331,7 +343,10 @@ def plot_regimes_over_price(
                 )
 
     ax.set_title(title)
-    ax.set_xlabel("Time (index)")
+    if isinstance(times, pd.DatetimeIndex):
+        ax.set_xlabel("Time")
+    else:
+        ax.set_xlabel("Time (index)")
     ax.set_ylabel("Price")
     cbar = plt.colorbar(scatter, ax=ax, ticks=range(len(unique_labels)))
     cbar.set_label("Cluster")
