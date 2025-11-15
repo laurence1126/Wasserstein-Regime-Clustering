@@ -10,7 +10,7 @@ import itertools
 import numpy as np
 import pandas as pd
 
-from .clusterings import WassersteinKMeans
+from .clusterings import WassersteinKMeans, MomentKMeans
 from .utils import segment_time_series, download_prices, download_market_caps
 
 
@@ -38,8 +38,8 @@ class RegimeRotationStrategy:
         burn_in_segments: int = 700,  # approx. 2 yrs
         refit_every: int = 48,
         n_clusters: int = 3,
-        p: int = 1,
-        shift: bool = False,
+        p_dim: int = 2,
+        shift: bool = True,
         weighting: Literal["equal", "market_cap"] = "equal",
     ) -> None:
         self.growth_tickers = list(growth_tickers)
@@ -52,7 +52,7 @@ class RegimeRotationStrategy:
         self.burn_in_segments = burn_in_segments
         self.refit_every = refit_every
         self.n_clusters = n_clusters
-        self.p = p
+        self.p_dim = p_dim
         self.shift = shift
         self.weighting = weighting.lower()
         if self.weighting not in {"equal", "market_cap"}:
@@ -86,13 +86,44 @@ class RegimeRotationStrategy:
             history = segments.iloc[idx - self.burn_in_segments : idx].tolist()
             model = WassersteinKMeans(
                 n_clusters=self.n_clusters,
-                p=self.p,
+                p_dim=self.p_dim,
                 max_iter=500,
-                tol=1e-6,
                 random_state=42,
             )
             model.fit(history, initial_centroids=prev_centroids)
             prev_centroids = [c.copy() for c in model.centroids_]
+            end = min(idx + self.refit_every, len(segments))
+            preds = model.predict(segments.iloc[idx:end].tolist())
+            for offset, lbl in enumerate(preds):
+                labels[idx + offset] = int(lbl)
+            idx = end
+
+        regime_series = pd.Series(labels, index=segments.index, dtype="float").dropna().astype(int)
+        regime_df = regime_series.to_frame(name="label")
+        regime_df["effective_date"] = regime_df.index.normalize()
+        # Roll signal to the next day if hour > 16
+        regime_df.loc[regime_df.index.hour > 16, "effective_date"] += pd.offsets.BusinessDay(1)
+        self.regime_series = regime_df.groupby("effective_date")["label"].last().sort_index()
+        self._signal_returns = signal_returns
+        return self.regime_series
+
+    def fit_mkmeans(self) -> pd.Series:
+        signal_returns = self._load_signal_returns()
+        segments = segment_time_series(signal_returns, self.window, self.step)
+        if len(segments) <= self.burn_in_segments:
+            raise ValueError("Not enough segments to cover burn-in period")
+
+        labels: List[Optional[int]] = [None] * len(segments)
+        idx = self.burn_in_segments
+        while idx < len(segments):
+            history = segments.iloc[idx - self.burn_in_segments : idx].tolist()
+            model = MomentKMeans(
+                n_clusters=self.n_clusters,
+                p_dim=self.p_dim,
+                max_iter=500,
+                random_state=42,
+            )
+            model.fit(history)
             end = min(idx + self.refit_every, len(segments))
             preds = model.predict(segments.iloc[idx:end].tolist())
             for offset, lbl in enumerate(preds):
@@ -242,61 +273,97 @@ class RegimeRotationStrategy:
             "max_drawdown": drawdown.min(),
         }
 
-    def _get_returns_series(self, leg: str) -> pd.Series:
-        modes = self.growth_returns_modes if leg == "growth" else self.defensive_returns_modes
-        if not modes:
-            raise RuntimeError("Returns have not been built yet.")
-        if self.weighting in modes:
-            return modes[self.weighting]
-        return modes["equal"]
+    @staticmethod
+    def grid_search_regimes(
+        growth_tickers: Sequence[str],
+        defensive_tickers: Sequence[str],
+        start_date: str = "2014-05-25",
+        end_date: str = "2025-11-01",
+        distence_metric: Literal["wkmeans", "mkmeans"] = "wkmeans",
+        p_dims=(2,),
+        windows=(360,),
+        steps=(12,),
+        refits=(96,),
+    ):
+        from rich.progress import Progress
 
-
-def grid_search_regimes(
-    growth,
-    defensive,
-    start_date="2014-05-15",
-    p=2,
-    windows=(360,),
-    steps=(12,),
-    refits=(96,),
-):
-    from rich.progress import Progress
-
-    combos = list(itertools.product(windows, steps, refits))
-    results = []
-    index = []
-    with Progress() as progress:
-        task = progress.add_task("grid", total=len(combos))
-        for win, step, refit in combos:
-            strategy = RegimeRotationStrategy(
-                growth_tickers=growth,
-                defensive_tickers=defensive,
-                start_date=start_date,
-                window=win,
-                step=step,
-                refit_every=refit,
-                p=p,
-                shift=True,
-            )
-            try:
-                strategy.fit_wkmeans()
-                strategy.build_returns()
-                result = strategy.backtest(
-                    allocations={
-                        0: {"growth": 1.0, "defensive": 0.0},
-                        1: {"growth": 0.0, "defensive": 1.0},
-                        2: {"growth": 0.0, "defensive": 1.0},
-                    },
+        combos = list(itertools.product(p_dims, windows, steps, refits))
+        results = []
+        index = []
+        with Progress() as progress:
+            task = progress.add_task("grid", total=len(combos))
+            for p, win, step, refit in combos:
+                strategy = RegimeRotationStrategy(
+                    growth_tickers=growth_tickers,
+                    defensive_tickers=defensive_tickers,
+                    start_date=start_date,
+                    end_date=end_date,
+                    window=win,
+                    step=step,
+                    refit_every=refit,
+                    p_dim=p,
+                    shift=True,
                 )
-            except Exception as exc:
-                progress.console.print(f"[red]skip (win={win}, step={step}, refit={refit}): {exc}[/red]")
+                try:
+                    if distence_metric == "wkmeans":
+                        strategy.fit_wkmeans()
+                    elif distence_metric == "mkmeans":
+                        strategy.fit_mkmeans()
+                    strategy.build_returns()
+                    result = strategy.backtest(
+                        allocations={
+                            0: {"growth": 1.0, "defensive": 0.0},
+                            1: {"growth": 0.0, "defensive": 1.0},
+                            2: {"growth": 0.0, "defensive": 1.0},
+                        },
+                    )
+                except Exception as exc:
+                    progress.console.print(f"[red]skip (win={win}, step={step}, refit={refit}): {exc}[/red]")
+                    progress.advance(task)
+                    continue
+
+                results.append(result.metrics)
+                index.append((p, win, step, refit))
                 progress.advance(task)
-                continue
+                progress.refresh()
 
-            results.append(result.metrics)
-            index.append((win, step, refit))
-            progress.advance(task)
-            progress.refresh()
+        idx = pd.MultiIndex.from_tuples(index, names=["p", "window", "step", "refit_every"])
+        return pd.DataFrame(results, index=idx).sort_values("sharpe", ascending=False)
 
-    idx = pd.MultiIndex.from_tuples(index, names=["window", "step", "refit_every"])
-    return pd.DataFrame(results, index=idx).sort_values("sharpe", ascending=False)
+
+def main():
+    import os
+
+    os.chdir("./src")
+
+    growth = ["ADBE", "CRM", "LULU", "ORLY", "COST", "TMO", "LIN", "ACN", "MA", "V", "SPGI", "MCO", "DHR", "SHW", "INTU", "NFLX", "NOW", "SNPS", "ISRG", "CDNS"]
+    defensive = ["EPD", "VZ", "O", "GIS", "BMY", "KMB", "CVX", "PSA", "PEP", "XOM", "DUK", "ED", "GPC", "WEC", "LMT", "KO", "PG", "JNJ", "CL", "MCD"]
+
+    strategy = RegimeRotationStrategy(
+        growth_tickers=growth,
+        defensive_tickers=defensive,
+        start_date="2019-05-09",
+        window=360,
+        step=12,
+    )
+
+    strategy.fit_wkmeans()
+    strategy.build_returns()
+
+    result = strategy.backtest(
+        allocations={
+            0: {"growth": 1.0, "defensive": 0.0},
+            1: {"growth": 0.0, "defensive": 1.0},
+            2: {"growth": 0.0, "defensive": 1.0},
+        },
+    )
+
+    for k, v in result.metrics.items():
+        if isinstance(v, str) or isinstance(v, int):
+            print(f"  {k}: {v}")
+        else:
+            print(f"  {k}: {v:.4f}")
+
+
+if __name__ == "__main__":
+    main()
