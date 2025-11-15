@@ -7,7 +7,7 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 ```
 ├── src/
 │   ├── clusterings.py          # Wasserstein & moment K-means utilities
-│   ├── utils.py                # segmentation + plotting helpers
+│   ├── utils.py                # segmentation, plotting, Yahoo helpers
 │   ├── MMD.py                  # MMD diagnostics/plots
 │   └── regime_trading_pipeline.py  # RegimeRotationStrategy & grid search
 ├── jupyter/
@@ -15,8 +15,10 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 │   └── trading.ipynb               # end-to-end strategy analysis & plots
 ├── documents/ (auto-generated markdown docs)
 ├── data/
-│   ├── SPX_hourly.csv  # hourly SPX prices (signal driver)
-│   └── stocks.csv      # cached Yahoo Finance closes used by the pipeline
+│   ├── SPX_hourly.csv         # hourly SPX prices (signal driver)
+│   ├── stocks.csv             # cached Yahoo Finance closes
+│   ├── share_counts_full.csv  # cached shares outstanding histories
+│   └── market_cap.csv         # derived market-cap time series
 └── README.md
 ```
 
@@ -27,19 +29,16 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 - `WassersteinKMeans`: supports warm-starts (passing previous centroids) and accepts either a list of numpy arrays or a pandas Series of segments. `predict` returns a Series if given Series inputs, preserving timestamps.
 - `MomentKMeans`: classic K-means on raw moments with k-means++ initialization.
 
-### `src/utils.py`
-
 - `segment_time_series(series, window, step)`: slices a pandas Series into overlapping windows and returns a Series with segment-end timestamps.
 - `segment_stats`, `scatter_mean_variance`, `plot_regimes_over_price`: statistics/visualization helpers. Plots use a professional Tol palette (blue/red/green) and can highlight specific regimes (e.g., `plot_regimes_over_price(..., highlight_clusters=[0,2], highlight_min_width=5)`).
+- `download_prices(tickers, start, end, field="Close")`: Yahoo! Finance downloader with csv caching and robust multi-index handling.
+- `download_market_caps(tickers, start, end, prices=None)`: stitches shares outstanding histories (via `get_shares_full` cached under `data/share_counts_full.csv`) with the downloaded prices to form a market-cap time series used for weighting schemes.
 
 ### `src/MMD.py`
 
 - `MMDCalculator`: RBF MMD implementation with between/within bootstrap routines and comparison plots used in the notebooks.
 
-### `src/regime_trading_pipeline.py`
-
-- `RegimeRotationStrategy`: class encapsulating signal preparation, rolling WK-means fitting (with hot start), daily return construction, and backtesting for a growth vs. defensive rotation. `StrategyResult` includes strategy curve plus benchmark curves (`SPY`, `GrowthOnly`, `DefensiveOnly`).
-- `_download_prices`: Yahoo Finance download helper with caching.
+- `RegimeRotationStrategy`: class encapsulating signal preparation, rolling WK-means fitting (with hot start), daily return construction (calling the shared `download_prices`/`download_market_caps` helpers), and backtesting for a growth vs. defensive rotation. Supports both equal-weight and market-cap-weighted legs via the `weighting` argument. `StrategyResult` includes strategy curve plus benchmark curves (SPY + each leg/allocation under both schemes when available).
 - `grid_search_regimes`: iterates across window/step/refit grids and reports metrics, with a `rich` progress bar.
 
 ## Notebooks (`jupyter/`)

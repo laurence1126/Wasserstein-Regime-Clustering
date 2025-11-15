@@ -22,15 +22,13 @@ Encapsulates the workflow.
 - `refit_every`: number of segments predicted per refit.
 - `n_clusters`, `p`: WK-means configuration.
 - `shift`: optional 1-day lag of weights.
+- `weighting`: `"equal"` for basket means, `"market_cap"` to weight constituents by their market capitalization (from `download_market_caps`).
 
 - `_load_signal_returns()`: parses the CSV and returns hourly log returns filtered by `start_date`.
 - `fit_wkmeans()`: calls the Series-based `segment_time_series`, runs rolling WK-means with hot-started centroids, and builds a regime Series indexed by the segment end timestamps (labels shift to the next day when timestamp > 16:00).
-- `build_returns()`: downloads daily closes (via `_download_prices`) and computes equal-weighted growth/defensive returns along with SPY.
-- `backtest(allocations=None)`: forward-fills regimes over the return index, builds weight series from the allocation map (optional 1-day shift), and produces the strategy curve plus multiple benchmarks (`SPY`, `GrowthOnly`, `DefensiveOnly`).
+- `build_returns()`: downloads daily closes (via `download_prices`) and computes equal-weighted growth/defensive returns along with SPY; if market-cap data are available the method also stores cap-weighted legs and selects whichever scheme matches `weighting`.
+- `backtest(allocations=None)`: forward-fills regimes over the return index, builds weight series from the allocation map (optional 1-day shift), and produces the strategy curve plus multiple benchmarks (SPY plus Growth/Defensive/Equal baskets for every available weighting scheme).
 - `_compute_metrics()`: helper returning date span, cumulative/annual performance, volatility, Sharpe, and max drawdown.
-
-## `_download_prices`
-Downloads daily OHLC data via Yahoo (auto-adjusted) with caching option. Handles both single-index and multi-index responses, enforces presence of requested tickers, and will read/write a cached CSV if available.
 
 ## `grid_search_regimes`
 Convenience routine to sweep combinations of window/step/refit parameters. Displays a Rich progress bar, handles exceptions gracefully, and returns a MultiIndex DataFrame sorted by Sharpe.

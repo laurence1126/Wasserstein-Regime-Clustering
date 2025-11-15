@@ -4,64 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Literal
 import itertools
 
 import numpy as np
 import pandas as pd
 
 from .clusterings import WassersteinKMeans
-from .utils import segment_time_series
-
-try:
-    import yfinance as yf
-except ImportError:  # pragma: no cover
-    yf = None
-
-
-def _download_prices(tickers: Sequence[str], start: str, end: str, field: str) -> pd.DataFrame:
-    if Path.exists(Path("../data/stocks.csv")):
-        df = pd.read_csv("../data/stocks.csv", index_col=0, header=0).astype(float)
-        df.index = pd.to_datetime(df.index)
-        missing = [t for t in tickers if t not in df.columns]
-        if not missing:
-            return df
-
-    if yf is None:
-        raise ImportError("yfinance is required to download market data")
-    data = yf.download(
-        tickers=" ".join(tickers),
-        start=start,
-        end=end,
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-        group_by="ticker",
-    )
-    if data.empty:
-        raise ValueError("yfinance returned no data; check tickers or date range")
-
-    choices = {field, field.title(), field.upper()}
-    if isinstance(data.columns, pd.MultiIndex):
-        level1 = data.columns.get_level_values(1)
-        match = next((c for c in choices if c in level1), None)
-        if match is None:
-            raise ValueError(f"Downloaded data lacks {field} column")
-        prices = data.xs(match, level=1, axis=1)
-    else:
-        match = next((c for c in choices if c in data.columns), None)
-        if match is None:
-            raise ValueError(f"Downloaded data lacks {field} column")
-        prices = data[match]
-
-    prices = prices.ffill().dropna(how="all")
-    if hasattr(prices.index, "tz") and prices.index.tz is not None:
-        prices.index = prices.index.tz_localize(None)
-    missing = [t for t in tickers if t not in prices.columns]
-    if missing:
-        raise KeyError(f"Missing tickers in Yahoo download: {', '.join(missing)}")
-    prices[tickers].to_csv("../data/stocks.csv")
-    return prices[tickers]
+from .utils import segment_time_series, download_prices, download_market_caps
 
 
 @dataclass
@@ -90,6 +40,7 @@ class RegimeRotationStrategy:
         n_clusters: int = 3,
         p: int = 1,
         shift: bool = False,
+        weighting: Literal["equal", "market_cap"] = "equal",
     ) -> None:
         self.growth_tickers = list(growth_tickers)
         self.defensive_tickers = list(defensive_tickers)
@@ -103,9 +54,13 @@ class RegimeRotationStrategy:
         self.n_clusters = n_clusters
         self.p = p
         self.shift = shift
+        self.weighting = weighting.lower()
+        if self.weighting not in {"equal", "market_cap"}:
+            raise ValueError("weighting must be 'equal' or 'market_cap'")
         self.regime_series: Optional[pd.Series] = None
-        self.growth_returns: Optional[pd.Series] = None
-        self.defensive_returns: Optional[pd.Series] = None
+        self._signal_returns: Optional[pd.Series] = None
+        self.growth_returns_modes: Dict[str, pd.Series] = {}
+        self.defensive_returns_modes: Dict[str, pd.Series] = {}
         self.spy_returns: Optional[pd.Series] = None
 
     def _load_signal_returns(self) -> pd.Series:
@@ -159,11 +114,48 @@ class RegimeRotationStrategy:
         start = self._signal_returns.index.min().strftime("%Y-%m-%d")
         end = self._signal_returns.index.max().strftime("%Y-%m-%d")
         tickers = sorted(set(self.growth_tickers) | set(self.defensive_tickers) | {"SPY"})
-        close_prices = _download_prices(tickers, start=start, end=end, field="Close")
-        returns = close_prices.pct_change().dropna()
+        close_prices = download_prices(tickers, start=start, end=end, field="Close")
+        returns = close_prices.pct_change().fillna(0.0)
 
-        self.growth_returns = returns[list(self.growth_tickers)].mean(axis=1)
-        self.defensive_returns = returns[list(self.defensive_tickers)].mean(axis=1)
+        def _equal_weight(series_names: Sequence[str]) -> pd.Series:
+            cols = [col for col in series_names if col in returns.columns]
+            if not cols:
+                raise ValueError("No overlapping tickers for returns calculation.")
+            return returns[cols].mean(axis=1)
+
+        market_caps = None
+        try:
+            market_caps = download_market_caps(tickers, start=start, end=end)
+        except Exception as exc:
+            if self.weighting == "market_cap":
+                raise RuntimeError("Can not download market cap data!")
+
+        if market_caps is not None and not market_caps.empty:
+            market_caps = market_caps.reindex(returns.index).ffill()
+
+        def _mcap_weight(series_names: Sequence[str]) -> Optional[pd.Series]:
+            if market_caps is None or market_caps.empty:
+                return None
+            cols = [col for col in series_names if col in returns.columns and col in market_caps.columns]
+            if not cols:
+                return None
+            caps = market_caps[cols]
+            weights = caps.div(caps.sum(axis=1), axis=0).replace([np.inf, -np.inf], np.nan).shift(1).fillna(0.0)
+            weighted_returns = (returns[cols] * weights).sum(axis=1)
+            return weighted_returns
+
+        growth_equal = _equal_weight(self.growth_tickers)
+        defensive_equal = _equal_weight(self.defensive_tickers)
+        growth_mcap = _mcap_weight(self.growth_tickers)
+        defensive_mcap = _mcap_weight(self.defensive_tickers)
+
+        self.growth_returns_modes = {"equal": growth_equal}
+        self.defensive_returns_modes = {"equal": defensive_equal}
+        if growth_mcap is not None:
+            self.growth_returns_modes["market_cap"] = growth_mcap
+        if defensive_mcap is not None:
+            self.defensive_returns_modes["market_cap"] = defensive_mcap
+
         self.spy_returns = returns["SPY"]
 
     def backtest(
@@ -176,33 +168,52 @@ class RegimeRotationStrategy:
     ) -> StrategyResult:
         if self.regime_series is None:
             raise RuntimeError("No regime labels. Call fit_wkmeans() first.")
-        if self.growth_returns is None or self.defensive_returns is None or self.spy_returns is None:
+        if self.growth_returns_modes is None or self.defensive_returns_modes is None or self.spy_returns is None:
             raise RuntimeError("Call build_returns() before backtest().")
 
-        index = self.growth_returns.index.intersection(self.defensive_returns.index).intersection(self.spy_returns.index)
+        index = (
+            self.growth_returns_modes["equal"].index.intersection(self.defensive_returns_modes["equal"].index).intersection(self.spy_returns.index)
+        )
         regime_series = self.regime_series.reindex(index, method="ffill").dropna().astype(int)
         index = index.intersection(regime_series.index)
         regime_series = regime_series.loc[index]
-        growth_returns = self.growth_returns.reindex(index).fillna(0.0)
-        defensive_returns = self.defensive_returns.reindex(index).fillna(0.0)
         spy_returns = self.spy_returns.reindex(index).fillna(0.0)
+        growth_equal = self.growth_returns_modes["equal"].reindex(index).fillna(0.0)
+        defensive_equal = self.defensive_returns_modes["equal"].reindex(index).fillna(0.0)
+        growth_mcap = self.growth_returns_modes.get("market_cap")
+        defensive_mcap = self.defensive_returns_modes.get("market_cap")
+        if growth_mcap is not None:
+            growth_mcap = growth_mcap.reindex(index).fillna(0.0)
+        if defensive_mcap is not None:
+            defensive_mcap = defensive_mcap.reindex(index).fillna(0.0)
 
         weights = pd.DataFrame(index=index, columns=["growth", "defensive"], data=0.0)
         for regime, alloc in allocations.items():
             mask = regime_series == regime
             for leg, val in alloc.items():
                 weights.loc[mask, leg] = val
+
         if self.shift:
             weights = weights.shift(1).fillna(0)
 
-        strategy_returns = weights["growth"] * growth_returns + weights["defensive"] * defensive_returns
+        if self.weighting == "equal":
+            strategy_returns = weights["growth"] * growth_equal + weights["defensive"] * defensive_equal
+            benchmark_curve = {
+                "GrowthOnly": (1 + growth_equal).cumprod(),
+                "EqualWeight": (1 + 0.5 * growth_equal + 0.5 * defensive_equal).cumprod(),
+                "DefensiveOnly": (1 + defensive_equal).cumprod(),
+                "SPY": (1 + spy_returns).cumprod(),
+            }
+        elif self.weighting == "market_cap":
+            strategy_returns = weights["growth"] * growth_mcap + weights["defensive"] * defensive_mcap
+            benchmark_curve = {
+                "GrowthOnly": (1 + growth_mcap).cumprod(),
+                "EqualWeight": (1 + 0.5 * growth_mcap + 0.5 * defensive_mcap).cumprod(),
+                "DefensiveOnly": (1 + defensive_mcap).cumprod(),
+                "SPY": (1 + spy_returns).cumprod(),
+            }
         equity_curve = (1 + strategy_returns).cumprod()
-        benchmark_curve = {
-            "GrowthOnly": (1 + growth_returns).cumprod(),
-            "EqualWeight": (1 + 0.5 * growth_returns + 0.5 * defensive_returns).cumprod(),
-            "DefensiveOnly": (1 + defensive_returns).cumprod(),
-            "SPY": (1 + spy_returns).cumprod(),
-        }
+
         metrics = self._compute_metrics(strategy_returns)
         return StrategyResult(
             equity_curve=equity_curve,
@@ -230,6 +241,14 @@ class RegimeRotationStrategy:
             "sharpe": sharpe,
             "max_drawdown": drawdown.min(),
         }
+
+    def _get_returns_series(self, leg: str) -> pd.Series:
+        modes = self.growth_returns_modes if leg == "growth" else self.defensive_returns_modes
+        if not modes:
+            raise RuntimeError("Returns have not been built yet.")
+        if self.weighting in modes:
+            return modes[self.weighting]
+        return modes["equal"]
 
 
 def grid_search_regimes(

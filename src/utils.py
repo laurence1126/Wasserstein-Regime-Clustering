@@ -1,7 +1,13 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from typing import Iterable, List, Optional, Union
+from pathlib import Path
+from typing import Iterable, List, Optional, Sequence
+
+try:
+    import yfinance as yf
+except ImportError:  # pragma: no cover
+    yf = None
 
 
 def segment_time_series(series: pd.Series, window: int, step: int) -> pd.Series:
@@ -173,3 +179,124 @@ def plot_regimes_over_price(
     ax.grid(alpha=0.25)
     plt.tight_layout()
     plt.show()
+
+
+def download_prices(tickers: Sequence[str], start: str, end: str, field: str = "Close") -> pd.DataFrame:
+    if Path.exists(Path("../data/stocks.csv")):
+        df = pd.read_csv("../data/stocks.csv", index_col=0, header=0).astype(float)
+        df.index = pd.to_datetime(df.index)
+        missing = [t for t in tickers if t not in df.columns]
+        if not missing:
+            return df
+
+    if yf is None:
+        raise ImportError("yfinance is required to download market data")
+    data = yf.download(
+        tickers=" ".join(tickers),
+        start=start,
+        end=end,
+        interval="1d",
+        auto_adjust=True,
+        progress=False,
+        group_by="ticker",
+    )
+    if data.empty:
+        raise ValueError("yfinance returned no data; check tickers or date range")
+
+    choices = {field, field.title(), field.upper()}
+    if isinstance(data.columns, pd.MultiIndex):
+        level1 = data.columns.get_level_values(1)
+        match = next((c for c in choices if c in level1), None)
+        if match is None:
+            raise ValueError(f"Downloaded data lacks {field} column")
+        prices = data.xs(match, level=1, axis=1)
+    else:
+        match = next((c for c in choices if c in data.columns), None)
+        if match is None:
+            raise ValueError(f"Downloaded data lacks {field} column")
+        prices = data[match]
+
+    prices = prices.ffill().dropna(how="all")
+    if hasattr(prices.index, "tz") and prices.index.tz is not None:
+        prices.index = prices.index.tz_localize(None)
+    missing = [t for t in tickers if t not in prices.columns]
+    if missing:
+        raise KeyError(f"Missing tickers in Yahoo download: {', '.join(missing)}")
+
+    prices[tickers].to_csv("../data/stocks.csv")
+    return prices[tickers]
+
+
+import yfinance as yf
+import pandas as pd
+
+
+def download_market_caps(tickers: Sequence[str], start: str, end: str) -> pd.DataFrame:
+    if Path("../data/market_cap.csv").exists():
+        df = pd.read_csv("../data/market_cap.csv", index_col=0, header=0).astype(float)
+        df.index = pd.to_datetime(df.index)
+        missing = [t for t in tickers if t not in df.columns]
+        if not missing:
+            return df
+
+    if not Path("../data/stocks.csv").exists():
+        raise RuntimeError("You need to download stock prices first!")
+    else:
+        price = pd.read_csv("../data/stocks.csv", index_col=0, header=0).astype(float)
+        price.index = pd.to_datetime(price.index)
+        missing = [t for t in tickers if t not in price.columns]
+        if missing:
+            raise RuntimeError("Missing tickers! You need to redownload stock prices first!")
+
+    if yf is None:
+        raise ImportError("yfinance is required to download market data")
+
+    shares_list = []
+    for t in tickers:
+        tk = yf.Ticker(t)
+        # get_shares_full usually returns a DataFrame with a DatetimeIndex
+        shares_hist = tk.get_shares_full(start=start, end=end)
+
+        if shares_hist is None or len(shares_hist) == 0:
+            # Fallback: use current sharesOutstanding if history not available
+            info = tk.info
+            current_shares = info.get("sharesOutstanding")
+            if current_shares is None:
+                raise ValueError(f"No historical or current 'sharesOutstanding' for {t}")
+            # Create a constant series over the price index
+            s = pd.Series(current_shares, index=price.index, name=t)
+        else:
+            # If it's a DataFrame, pick the first column (commonly 'SharesOutstanding')
+            if isinstance(shares_hist, pd.DataFrame):
+                if shares_hist.shape[1] == 1:
+                    s = shares_hist.iloc[:, 0]
+                else:
+                    # Try a sensible column name first, otherwise first column
+                    col = "SharesOutstanding" if "SharesOutstanding" in shares_hist.columns else shares_hist.columns[0]
+                    s = shares_hist[col]
+            else:
+                # If already a Series
+                s = shares_hist
+            # Make sure index is datetime and sorted
+            s.index = pd.to_datetime([str(x).split(" ")[0] for x in s.index])
+            s = s.groupby(s.index).last()
+            s = s.sort_index()
+
+            # Align to the daily price index with forward-fill (shares change at discrete dates)
+            s = s.reindex(price.index, method="ffill")
+
+            # In case there are leading NaNs before the first known shares value, back-fill them
+            s = s.bfill()
+
+            s.name = t
+
+        shares_list.append(s)
+
+    shares_df = pd.concat(shares_list, axis=1)
+    shares_df = shares_df[tickers]
+    market_cap_df = price * shares_df
+    if "SPY" in market_cap_df.columns:
+        market_cap_df.drop(columns=["SPY"])
+    market_cap_df.to_csv("../data/market_cap.csv")
+
+    return market_cap_df
