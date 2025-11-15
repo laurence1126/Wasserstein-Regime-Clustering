@@ -175,7 +175,15 @@ def plot_regimes_over_price(
     ax.set_title(title)
     ax.set_xlabel("Time")
     ax.set_ylabel("Price")
-    ax.legend(loc="upper left", frameon=False)
+    handles, labels_text = ax.get_legend_handles_labels()
+    if labels_text:
+        try:
+            order = sorted(range(len(labels_text)), key=lambda i: int(labels_text[i].split()[-1]))
+            handles = [handles[i] for i in order]
+            labels_text = [labels_text[i] for i in order]
+        except ValueError:
+            pass
+        ax.legend(handles, labels_text, loc="upper left", frameon=False)
     ax.grid(alpha=0.25)
     plt.tight_layout()
     plt.show()
