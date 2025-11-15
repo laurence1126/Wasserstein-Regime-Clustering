@@ -328,8 +328,6 @@ class MomentKMeans:
         if self.centroids_ is None:
             raise RuntimeError("Model not fitted yet.")
         segments, index = self._prepare_segments(segments)
-        if len(segments[0]) != len(self.centroids_[0]):
-            raise ValueError("Input samples must have the same length as centroids.")
 
         F = self._build_features(segments)
         d2 = ((F[:, None, :] - self.centroids_[None, :, :]) ** 2).sum(axis=2)
