@@ -17,7 +17,6 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 ├── data/
 │   ├── SPX_hourly.csv         # hourly SPX prices (signal driver)
 │   ├── stocks.csv             # cached Yahoo Finance closes
-│   ├── share_counts_full.csv  # cached shares outstanding histories
 │   └── market_cap.csv         # derived market-cap time series
 └── README.md
 ```
@@ -30,7 +29,7 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 - `MomentKMeans`: classic K-means on raw moments with k-means++ initialization.
 
 - `segment_time_series(series, window, step)`: slices a pandas Series into overlapping windows and returns a Series with segment-end timestamps.
-- `segment_stats`, `scatter_mean_variance`, `plot_regimes_over_price`: statistics/visualization helpers. Plots use a professional Tol palette (blue/red/green) and can highlight specific regimes (e.g., `plot_regimes_over_price(..., highlight_clusters=[0,2], highlight_min_width=5)`).
+- `segment_stats`, `scatter_mean_variance`, `plot_regimes_over_price`: statistics/visualization helpers. Plots use a professional Tol palette (blue/red/green) and can highlight specific regimes (e.g., `plot_regimes_over_price(..., highlight_clusters=[0,2], highlight_min_width=5)`); regime legends are sorted numerically (Cluster 0, 1, 2, …) regardless of plotting order.
 - `download_prices(tickers, start, end, field="Close")`: Yahoo! Finance downloader with csv caching and robust multi-index handling.
 - `download_market_caps(tickers, start, end, prices=None)`: stitches shares outstanding histories (via `get_shares_full` cached under `data/share_counts_full.csv`) with the downloaded prices to form a market-cap time series used for weighting schemes.
 
