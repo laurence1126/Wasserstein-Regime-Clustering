@@ -164,13 +164,33 @@ def plot_regimes_over_price(
     segments.append((current_label, point_times[start_idx:], point_prices[start_idx:]))
 
     highlight_set = set(highlight_clusters or [])
+    merged_spans = []
+    span_start = None
+    span_end = None
+    span_count = 0
+
     for lab, times_seg, prices_seg in segments:
         color = label_colors[lab]
         label = f"Cluster {lab}" if lab not in plotted else None
         plotted.add(lab)
         ax.plot(times_seg, prices_seg, color=color, label=label)
-        if lab in highlight_set and len(times_seg) >= highlight_min_width:
-            ax.axvspan(times_seg[0], times_seg[-1], color="red", alpha=0.1, zorder=0)
+        if lab in highlight_set:
+            if span_start is None:
+                span_start = times_seg[0]
+            span_end = times_seg[-1]
+            span_count += len(times_seg)
+        else:
+            if span_start is not None and span_count >= highlight_min_width:
+                merged_spans.append((span_start, span_end))
+            span_start = None
+            span_end = None
+            span_count = 0
+
+    if span_start is not None and span_count >= highlight_min_width:
+        merged_spans.append((span_start, span_end))
+
+    for start_time, end_time in merged_spans:
+        ax.axvspan(start_time, end_time, color="red", alpha=0.1, zorder=0)
 
     ax.set_title(title)
     ax.set_xlabel("Time")

@@ -1,6 +1,7 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import pandas as pd
+import matplotlib.pyplot as plt
+from math import factorial
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Literal, Union
 from hmmlearn.hmm import GaussianHMM
@@ -16,11 +17,20 @@ class WKMeansResult:
 
 
 class WassersteinKMeans:
-    def __init__(self, n_clusters=2, p=2, max_iter=100, tol=1e-6, random_state=None):
+    def __init__(
+        self,
+        n_clusters: int = 2,
+        p_dim: int = 2,
+        max_iter: int = 100,
+        tol: float = 1e-6,
+        standardize: bool = False,
+        random_state: Optional[int] = None,
+    ):
         self.n_clusters = n_clusters
-        self.p = p
+        self.p_dim = p_dim
         self.max_iter = max_iter
         self.tol = tol
+        self.standardize = standardize
         self.random_state = random_state
         self.centroids_ = None
         self.labels_ = None
@@ -28,7 +38,7 @@ class WassersteinKMeans:
             np.random.seed(random_state)
             random.seed(random_state)
 
-    def _wasserstein_empirical(self, alpha: np.ndarray, beta: np.ndarray, p=2):
+    def _wasserstein_empirical(self, alpha: np.ndarray, beta: np.ndarray, p_dim=2):
         """
         Compute empirical Wasserstein-p distance between two empirical measures.
 
@@ -50,9 +60,9 @@ class WassersteinKMeans:
         beta = np.sort(np.array(beta))
 
         N = min(len(alpha), len(beta))
-        return (np.mean(np.abs(alpha[:N] - beta[:N]) ** p)) ** (1 / p)
+        return (np.mean(np.abs(alpha[:N] - beta[:N]) ** p_dim)) ** (1 / p_dim)
 
-    def _wasserstein_barycenter(self, samples: np.ndarray, p=2):
+    def _wasserstein_barycenter(self, samples: np.ndarray, p_dim=2):
         """
         Compute the Wasserstein barycenter (centroid) of a list of 1D empirical samples.
         - For p=1: coordinate-wise median of order statistics.
@@ -61,27 +71,16 @@ class WassersteinKMeans:
         N = len(samples[0])
         # Stack sorted samples
         S = np.vstack([np.sort(s)[:N] for s in samples])
-        if p == 1:
+        if p_dim == 1:
             return np.median(S, axis=0)
         else:
             return np.mean(S, axis=0)
-
-    @staticmethod
-    def _prepare_segments(segments: Iterable) -> tuple[List[np.ndarray], Optional[pd.Index]]:
-        if isinstance(segments, pd.Series):
-            index = segments.index
-            iterable = segments.values
-        else:
-            index = None
-            iterable = segments
-        prepared = [np.asarray(seg, dtype=float).ravel() for seg in iterable]
-        return prepared, index
 
     def fit(self, segments: List[np.ndarray], initial_centroids: Optional[List[np.ndarray]] = None) -> WKMeansResult:
         """
         Run WK-means on a list of empirical distributions (arrays of equal length).
         """
-        segments, index = self._prepare_segments(segments)
+        segments, index = _prepare_segments(segments, self.standardize)
         n_samples = len(segments)
         if n_samples < self.n_clusters:
             raise ValueError("Number of samples must be >= number of clusters.")
@@ -100,7 +99,7 @@ class WassersteinKMeans:
         while iteration < self.max_iter:
             # Assignment step
             for i, sample in enumerate(segments):
-                distances = [self._wasserstein_empirical(sample, c, p=self.p) for c in self.centroids_]
+                distances = [self._wasserstein_empirical(sample, c, p_dim=self.p_dim) for c in self.centroids_]
                 self.labels_[i] = np.argmin(distances)
 
             # Update step
@@ -108,13 +107,13 @@ class WassersteinKMeans:
             for j in range(self.n_clusters):
                 cluster_members = [segments[i] for i in range(n_samples) if self.labels_[i] == j]
                 if cluster_members:
-                    new_centroids.append(self._wasserstein_barycenter(cluster_members, p=self.p))
+                    new_centroids.append(self._wasserstein_barycenter(cluster_members, p_dim=self.p_dim))
                 else:
                     # Handle empty cluster by reinitializing
                     new_centroids.append(random.choice(segments))
 
             # Check convergence
-            shift = sum(self._wasserstein_empirical(self.centroids_[j], new_centroids[j], p=self.p) for j in range(self.n_clusters))
+            shift = sum(self._wasserstein_empirical(self.centroids_[j], new_centroids[j], p_dim=self.p_dim) for j in range(self.n_clusters))
             self.centroids_ = new_centroids
 
             iteration += 1
@@ -125,9 +124,9 @@ class WassersteinKMeans:
         if iteration == self.max_iter:
             print(f"Warning: WK-means algorithm may not converge after {self.max_iter} iterations")
 
-        # Sort the labels by variance of centroid
-        centroid_vars = np.var(self.centroids_, axis=1)
-        sorted_indices = np.argsort(centroid_vars)
+        # Sort the labels by sharpe of centroid
+        centroid_sharpe = np.mean(self.centroids_, axis=1) / np.std(self.centroids_, axis=1)
+        sorted_indices = np.argsort(-centroid_sharpe)
         self.centroids_ = [self.centroids_[i] for i in sorted_indices]
         self.labels_ = np.array([np.where(sorted_indices == lbl)[0][0] for lbl in self.labels_])
         if index is not None:
@@ -141,13 +140,13 @@ class WassersteinKMeans:
         """
         if self.centroids_ is None:
             raise RuntimeError("Model not fitted yet.")
-        segments, index = self._prepare_segments(segments)
+        segments, index = _prepare_segments(segments, self.standardize)
         if len(segments[0]) != len(self.centroids_[0]):
             raise ValueError("Input samples must have the same length as centroids.")
 
         labels = []
         for sample in segments:
-            distances = [self._wasserstein_empirical(sample, c, p=self.p) for c in self.centroids_]
+            distances = [self._wasserstein_empirical(sample, c, p_dim=self.p_dim) for c in self.centroids_]
             labels.append(np.argmin(distances))
         labels = np.array(labels)
         if index is not None:
@@ -204,19 +203,19 @@ class MomentKMeans:
     def __init__(
         self,
         n_clusters: int = 2,
-        p_moments: int = 4,
-        standardize: bool = True,
+        p_dim: int = 2,
         max_iter: int = 100,
         tol: float = 1e-6,
+        standardize: bool = True,
         init: Literal["kmeans++", "random"] = "kmeans++",
         random_state: Optional[int] = None,
     ):
         if n_clusters < 2:
             raise ValueError("n_clusters must be >= 2")
-        if p_moments < 1:
+        if p_dim < 1:
             raise ValueError("p_moments must be >= 1")
         self.k = n_clusters
-        self.p = p_moments
+        self.p_dim = p_dim
         self.standardize = standardize
         self.max_iter = max_iter
         self.tol = tol
@@ -231,34 +230,25 @@ class MomentKMeans:
         self._features_: Optional[np.ndarray] = None  # cached feature matrix (n, p)
 
     @staticmethod
-    def _prepare_segments(segments: Iterable) -> tuple[List[np.ndarray], Optional[pd.Index]]:
-        if isinstance(segments, pd.Series):
-            index = segments.index
-            iterable = segments.values
-        else:
-            index = None
-            iterable = segments
-        prepared = [np.asarray(seg, dtype=float).ravel() for seg in iterable]
-        return prepared, index
-
-    def _moments_vector(self, x: np.ndarray, p: int) -> np.ndarray:
+    def _moments_vector(x: np.ndarray, p: int) -> np.ndarray:
         """
         First p raw moments of a 1D sample x (finite-length empirical distribution).
         m_n = E[X^n] estimated by sample average.
         Returns shape (p,)
         """
         x = np.asarray(x, dtype=float).ravel()
-        return np.array([np.mean(x**n) for n in range(1, p + 1)], dtype=float)
+        return np.array([np.mean(x**n) / factorial(n) for n in range(1, p + 1)], dtype=float)
 
-    def _zscore_columns(self, M: np.ndarray, eps: float = 1e-12) -> np.ndarray:
+    @staticmethod
+    def _zscore_columns(M: np.ndarray, eps: float = 1e-12) -> np.ndarray:
         """Column-wise z-score standardization (mean 0, var 1)."""
         mu = M.mean(axis=0)
         sd = M.std(axis=0)
         return (M - mu) / np.maximum(sd, eps)
 
     def _build_features(self, segments: List[np.ndarray]) -> np.ndarray:
-        F = np.vstack([self._moments_vector(s, self.p) for s in segments]).astype(float)
-        return self._zscore_columns(F) if self.standardize else F
+        F = np.vstack([self._moments_vector(s, self.p_dim) for s in segments]).astype(float)
+        return F
 
     def _init_centroids(self, F: np.ndarray) -> np.ndarray:
         n = F.shape[0]
@@ -278,7 +268,10 @@ class MomentKMeans:
         return np.vstack(centroids)
 
     def fit(self, segments: List[np.ndarray]) -> MKMeansResult:
-        segments, index = self._prepare_segments(segments)
+        """
+        Run MK-means on a list of empirical distributions (arrays of equal length).
+        """
+        segments, index = _prepare_segments(segments, self.standardize)
         if len(segments) < self.k:
             raise ValueError("Number of samples must be >= n_clusters.")
         F = self._build_features(segments)  # (n, p)
@@ -310,8 +303,8 @@ class MomentKMeans:
                 break
 
         # Sort the labels by variance of centroid
-        centroid_vars = np.var(C, axis=1)
-        sorted_indices = np.argsort(centroid_vars)
+        centroid_sharpe = C[:, 0] / np.sqrt(C[:, 1])
+        sorted_indices = np.argsort(-centroid_sharpe)
         C = np.array([C[i] for i in sorted_indices])
         labels = np.array([np.where(sorted_indices == lbl)[0][0] for lbl in labels])
 
@@ -325,9 +318,12 @@ class MomentKMeans:
         return MKMeansResult(C, label_output, losses, it)
 
     def predict(self, segments: List[np.ndarray]) -> Union[np.ndarray, pd.Series]:
+        """
+        Assign new samples to clusters.
+        """
         if self.centroids_ is None:
             raise RuntimeError("Model not fitted yet.")
-        segments, index = self._prepare_segments(segments)
+        segments, index = _prepare_segments(segments, self.standardize)
 
         F = self._build_features(segments)
         d2 = ((F[:, None, :] - self.centroids_[None, :, :]) ** 2).sum(axis=2)
@@ -353,7 +349,8 @@ class HMMClustering:
         self.labels_: Optional[np.ndarray] = None
         self.model_: Optional[GaussianHMM] = None
 
-    def _prepare_observations(self, X):
+    @staticmethod
+    def _prepare_observations(X):
         if isinstance(X, pd.Series):
             data = X.dropna()
             return data.to_numpy().reshape(-1, 1), data.index
@@ -395,3 +392,21 @@ class HMMClustering:
         if index is not None:
             return pd.Series(preds, index=index)
         return preds
+
+
+def _prepare_segments(segments: Iterable, standardize: False) -> tuple[List[np.ndarray], Optional[pd.Index]]:
+    if isinstance(segments, pd.Series):
+        index = segments.index
+        iterable = segments.values
+    else:
+        index = None
+        iterable = segments
+
+    if standardize:
+        mean = np.mean(np.array(iterable).ravel())
+        std = np.std(np.array(iterable).ravel())
+    else:
+        mean = 0
+        std = 1
+    prepared = [np.asarray((seg - mean) / std, dtype=float).ravel() for seg in iterable]
+    return prepared, index
