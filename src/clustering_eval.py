@@ -217,3 +217,150 @@ class MMDCalculator:
 
         fig.tight_layout()
         return (A1, A2, B1, B2), fig
+
+
+class ClusteringMetrics:
+    """Implements classic clustering metrics reported alongside MMD."""
+
+    def __init__(self, random_state=None):
+        self.rng = np.random.default_rng(random_state)
+
+    @staticmethod
+    def _cluster_arrays(segments, labels):
+        data = MMDCalculator._as_2d(segments)
+        lab = np.asarray(labels)
+        if data.shape[0] != lab.shape[0]:
+            raise ValueError("Segments and labels must have the same length.")
+        uniq = np.unique(lab)
+        if uniq.size == 0:
+            raise ValueError("At least one cluster is required.")
+        clusters = [data[lab == u] for u in uniq]
+        return data, lab, uniq, clusters
+
+    @staticmethod
+    def _pairwise_distances(A, B=None):
+        B = A if B is None else B
+        d2 = MMDCalculator._sq_dists(A, B)
+        return np.sqrt(np.maximum(d2, 0.0))
+
+    def davies_bouldin_index(self, segments, labels):
+        """Davies-Bouldin index (Definition 3.3 in the paper)."""
+
+        _, _, _, clusters = self._cluster_arrays(segments, labels)
+        k = len(clusters)
+        if k < 2:
+            raise ValueError("Davies-Bouldin requires at least two clusters.")
+
+        centroids = np.array([cluster.mean(axis=0) for cluster in clusters])
+        spreads = []
+        for cluster, centroid in zip(clusters, centroids):
+            if cluster.shape[0] == 1:
+                spreads.append(0.0)
+            else:
+                spreads.append(np.linalg.norm(cluster - centroid, axis=1).mean())
+        spreads = np.asarray(spreads)
+
+        centroid_dists = self._pairwise_distances(centroids)
+        np.fill_diagonal(centroid_dists, np.inf)
+
+        ratios = []
+        for i in range(k):
+            denom = centroid_dists[i]
+            vals = (spreads[i] + spreads) / denom
+            vals[i] = -np.inf
+            ratios.append(np.max(vals))
+        return float(np.mean(ratios))
+
+    def dunn_index(self, segments, labels):
+        """Dunn index (Definition 3.4)."""
+
+        _, _, _, clusters = self._cluster_arrays(segments, labels)
+        if len(clusters) < 2:
+            raise ValueError("Dunn index requires at least two clusters.")
+
+        max_intra = 0.0
+        min_inter = np.inf
+
+        for cluster in clusters:
+            if cluster.shape[0] <= 1:
+                continue
+            dists = self._pairwise_distances(cluster)
+            mask = np.triu_indices_from(dists, k=1)
+            if mask[0].size:
+                max_intra = max(max_intra, float(np.max(dists[mask])))
+
+        for i in range(len(clusters)):
+            for j in range(i + 1, len(clusters)):
+                dists = self._pairwise_distances(clusters[i], clusters[j])
+                min_inter = min(min_inter, float(np.min(dists)))
+
+        if not np.isfinite(min_inter) or max_intra == 0.0:
+            return np.nan
+        return float(min_inter / max_intra)
+
+    def silhouette_scores(self, segments, labels):
+        """Point-wise Silhouette coefficients (Definition 3.5)."""
+
+        data, lab, uniq, _ = self._cluster_arrays(segments, labels)
+        if uniq.size < 2:
+            raise ValueError("Silhouette requires at least two clusters.")
+
+        dist = self._pairwise_distances(data)
+        idx_by_cluster = {u: np.where(lab == u)[0] for u in uniq}
+        scores = np.zeros(data.shape[0], dtype=float)
+
+        for i in range(data.shape[0]):
+            current = lab[i]
+            same_idx = idx_by_cluster[current]
+            others = [idx_by_cluster[u] for u in uniq if u != current]
+
+            same_mask = same_idx[same_idx != i]
+            if same_mask.size == 0:
+                a_i = 0.0
+            else:
+                a_i = float(dist[i, same_mask].mean())
+
+            b_i = np.inf
+            for idx in others:
+                if idx.size:
+                    b_i = min(b_i, float(dist[i, idx].mean()))
+
+            denom = max(a_i, b_i)
+            scores[i] = 0.0 if denom == 0 else (b_i - a_i) / denom
+
+        return scores
+
+    def alpha_silhouette(self, segments, labels, alpha=1.0):
+        """Compute the α-average silhouette from Remark 3.6."""
+
+        if not (0 < alpha <= 1):
+            raise ValueError("alpha must lie in (0, 1].")
+
+        scores = self.silhouette_scores(segments, labels)
+        _, lab, uniq, _ = self._cluster_arrays(segments, labels)
+        idx_by_cluster = {u: np.where(lab == u)[0] for u in uniq}
+
+        cluster_avgs = []
+        for u in uniq:
+            idx = idx_by_cluster[u]
+            lam = max(1, int(np.floor(alpha * idx.size)))
+            if lam >= idx.size:
+                chosen = idx
+            else:
+                lin_idx = np.linspace(0, idx.size - 1, lam, dtype=int)
+                chosen = idx[lin_idx]
+            cluster_avgs.append(float(scores[chosen].mean()))
+
+        return float(np.mean(cluster_avgs))
+
+    def evaluate_all(self, segments, labels, alpha=1.0):
+        """Convenience helper returning all metrics in a dictionary."""
+
+        sil_scores = self.silhouette_scores(segments, labels)
+        return {
+            "davies_bouldin": self.davies_bouldin_index(segments, labels),
+            "dunn": self.dunn_index(segments, labels),
+            "silhouette_mean": float(sil_scores.mean()),
+            "silhouette_scores": sil_scores,
+            "silhouette_alpha": self.alpha_silhouette(segments, labels, alpha=alpha),
+        }

@@ -6,25 +6,30 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 
 ```
 ├── src/
-│   ├── clusterings.py          # Wasserstein & moment K-means utilities
-│   ├── utils.py                # segmentation, plotting, Yahoo helpers
-│   ├── MMD.py                  # MMD diagnostics/plots
-│   ├── constants.py            # shared palette & other global settings
+│   ├── clustering_methods.py       # Wasserstein & moment K-means utilities
+│   ├── clustering_eval.py          # MMD calculator + clustering metrics
+│   ├── utils.py                    # segmentation, plotting, Yahoo helpers
+│   ├── constants.py                # shared palette & globals
 │   └── regime_trading_pipeline.py  # RegimeRotationStrategy & grid search
 ├── jupyter/
-│   ├── clustering_examples.ipynb   # exploratory WK-means / MMD visualisations
-│   └── trading.ipynb               # end-to-end strategy analysis & plots
-├── documents/ (auto-generated markdown docs)
+│   ├── clustering_examples.ipynb        # walkthrough of segmentation + clustering
+│   ├── clustering_eval_examples.ipynb   # standalone evaluation notebook
+│   └── trading.ipynb                    # end-to-end strategy analysis & plots
+├── documents/
+│   ├── clustering_method.md        # auto-generated module docs
+│   ├── clustering_eval.md
+│   ├── utils.md
+│   └── regime_rotation.md
 ├── data/
-│   ├── SPX_hourly.csv         # hourly SPX prices (signal driver)
-│   ├── stocks.csv             # cached Yahoo Finance closes
-│   └── market_cap.csv         # derived market-cap time series
+│   ├── SPX_hourly.csv              # hourly SPX prices (signal driver)
+│   ├── stocks.csv                  # cached Yahoo Finance closes
+│   └── market_cap.csv              # derived market-cap time series
 └── README.md
 ```
 
 ## Python Modules
 
-### `src/clusterings.py`
+### `src/clustering_methods.py`
 
 - `WassersteinKMeans`: supports warm-starts (passing previous centroids) and accepts either a list of numpy arrays or a pandas Series of segments. `predict` returns a Series if given Series inputs, preserving timestamps.
 - `MomentKMeans`: classic K-means on raw moments with k-means++ initialization.
@@ -35,9 +40,10 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 - `download_prices(tickers, start, end, field="Close")`: Yahoo! Finance downloader with csv caching and robust multi-index handling.
 - `download_market_caps(tickers, start, end, prices=None)`: stitches shares outstanding histories (via `get_shares_full` cached under `data/share_counts_full.csv`) with the downloaded prices to form a market-cap time series used for weighting schemes.
 
-### `src/MMD.py`
+### `src/clustering_eval.py`
 
 - `MMDCalculator`: RBF MMD implementation with between/within bootstrap routines and comparison plots used in the notebooks.
+- `ClusteringMetrics`: Davies-Bouldin, Dunn, and (α-)silhouette metrics mirroring the evaluation section of the paper.
 
 ### `src/constants.py`
 
@@ -49,6 +55,7 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 ## Notebooks (`jupyter/`)
 
 - **`clustering_examples.ipynb`** – walkthrough of segmenting SPX returns, fitting Wasserstein vs. moment K-means, visualizing regimes, and comparing clustering quality via MMD.
+- **`clustering_eval_examples.ipynb`** – dedicated evaluation notebook showing how to run `ClusteringMetrics`/MMD comparisons (Davies–Bouldin, Dunn, silhouette, bootstrapped MMD) on WK-means vs. moment K-means outputs.
 - **`trading.ipynb`** – uses `RegimeRotationStrategy` to fit regimes, run backtests with different allocation maps, plot equity curves (with drawdown highlights) and generate figures for reporting.
 
 ## Usage

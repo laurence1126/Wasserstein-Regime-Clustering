@@ -10,7 +10,7 @@ import itertools
 import numpy as np
 import pandas as pd
 
-from .clusterings import WassersteinKMeans, MomentKMeans
+from .clustering_methods import WassersteinKMeans, MomentKMeans
 from .utils import segment_time_series, download_prices, download_market_caps, load_signal
 
 
@@ -274,7 +274,7 @@ class RegimeRotationStrategy:
         windows=(360,),
         steps=(12,),
         refits=(96,),
-        burn_ins=(700,)
+        burn_ins=(700,),
     ):
         from rich.progress import Progress
 
@@ -293,7 +293,7 @@ class RegimeRotationStrategy:
                     step=step,
                     refit_every=refit,
                     p_dim=p,
-                    burn_in_segments=burn_in
+                    burn_in_segments=burn_in,
                 )
                 try:
                     if distence_metric == "wkmeans":
@@ -327,7 +327,28 @@ def main():
 
     os.chdir("./src")
 
-    growth = ["ADBE", "CRM", "LULU", "ORLY", "COST", "TMO", "LIN", "ACN", "MA", "V", "SPGI", "MCO", "DHR", "SHW", "INTU", "NFLX", "NOW", "SNPS", "ISRG", "CDNS"]
+    growth = [
+        "ADBE",
+        "CRM",
+        "LULU",
+        "ORLY",
+        "COST",
+        "TMO",
+        "LIN",
+        "ACN",
+        "MA",
+        "V",
+        "SPGI",
+        "MCO",
+        "DHR",
+        "SHW",
+        "INTU",
+        "NFLX",
+        "NOW",
+        "SNPS",
+        "ISRG",
+        "CDNS",
+    ]
     defensive = ["EPD", "VZ", "O", "GIS", "BMY", "KMB", "CVX", "PSA", "PEP", "XOM", "DUK", "ED", "GPC", "WEC", "LMT", "KO", "PG", "JNJ", "CL", "MCD"]
 
     strategy = RegimeRotationStrategy(

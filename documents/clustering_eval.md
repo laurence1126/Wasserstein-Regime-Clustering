@@ -1,6 +1,6 @@
-# `src/MMD.py`
+# `src/clustering_eval.py`
 
-Implements Maximum Mean Discrepancy (MMD^2) utilities for comparing return-window distributions.
+Implements Maximum Mean Discrepancy (MMD^2) utilities and classic clustering metrics for comparing return-window distributions.
 
 ## `MMDCalculator`
 - Parameters: `sigma` (bandwidth), `unbiased` (choose U- vs V-statistic), `random_state` for reproducibility.
@@ -12,4 +12,11 @@ Implements Maximum Mean Discrepancy (MMD^2) utilities for comparing return-windo
 - `compare_two_clusterings_hist(...)`: histogram comparison of between-cluster MMD^2 distributions for two labeling schemes (e.g., Wasserstein vs. Moment).
 - `plot_within_two_methods(...)`: side-by-side histograms of within-cluster MMD^2 for the two largest clusters under two labelings.
 
-Use these tools to quantify how separable regimes are (between-cluster MMD) or how stable each regime's distribution is (within-cluster MMD). EOF
+## `ClusteringMetrics`
+- `davies_bouldin_index`: Davies-Bouldin score per Definition 3.3.
+- `dunn_index`: Dunn index using intra/inter cluster distances from Definition 3.4.
+- `silhouette_scores`: point-wise silhouette coefficients from Definition 3.5.
+- `alpha_silhouette`: α-average silhouette described in Remark 3.6 (α ∈ (0, 1]).
+- `evaluate_all`: convenience helper returning a dictionary with every metric.
+
+Use these tools to quantify how separable regimes are (between-cluster MMD) or how stable each regime's distribution is (within-cluster MMD). See `jupyter/clustering_eval_examples.ipynb` for a complete walkthrough that reproduces the evaluation figures/tables independently of the clustering tutorial. EOF
