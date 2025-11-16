@@ -348,6 +348,7 @@ class HMMClustering:
         self.covariance_type = covariance_type
         self.random_state = random_state
         self.labels_: Optional[np.ndarray] = None
+        self.label_mapping_: Optional[np.ndarray] = None
         self.model_: Optional[GaussianHMM] = None
 
     @staticmethod
@@ -375,12 +376,27 @@ class HMMClustering:
             stds.append(np.std(state_data))
             periods.append(len(state_data))
 
-        if index is not None:
-            label_output: Union[np.ndarray, pd.Series] = pd.Series(hidden_states, index=index)
-        else:
-            label_output = hidden_states
+        means_arr = np.asarray(means, dtype=float)
+        stds_arr = np.asarray(stds, dtype=float)
+        neg_sharpe = -means_arr / stds_arr
+        sorted_indices = np.argsort(neg_sharpe)
+        relabeled_states = np.zeros_like(hidden_states)
+        label_mapping = np.zeros_like(sorted_indices)
+        for new_label, old_label in enumerate(sorted_indices):
+            relabeled_states[hidden_states == old_label] = new_label
+            label_mapping[old_label] = new_label
 
-        self.labels_ = hidden_states
+        means = means_arr[sorted_indices].tolist()
+        stds = stds_arr[sorted_indices].tolist()
+        periods = np.asarray(periods, dtype=int)[sorted_indices].tolist()
+
+        if index is not None:
+            label_output = pd.Series(relabeled_states, index=index)
+        else:
+            label_output = relabeled_states
+
+        self.labels_ = relabeled_states
+        self.label_mapping_ = label_mapping
         self.model_ = model
 
         return HMMClusteringResult(labels=label_output, means=means, stds=stds, periods=periods)
@@ -390,6 +406,8 @@ class HMMClustering:
             raise RuntimeError("Model not fitted yet.")
         obs, index = self._prepare_observations(X)
         preds = self.model_.predict(obs)
+        if self.label_mapping_ is not None:
+            preds = self.label_mapping_[preds]
         if index is not None:
             return pd.Series(preds, index=index)
         return preds
