@@ -274,15 +274,16 @@ class RegimeRotationStrategy:
         windows=(360,),
         steps=(12,),
         refits=(96,),
+        burn_ins=(700,)
     ):
         from rich.progress import Progress
 
-        combos = list(itertools.product(p_dims, windows, steps, refits))
+        combos = list(itertools.product(p_dims, windows, steps, refits, burn_ins))
         results = []
         index = []
         with Progress() as progress:
             task = progress.add_task("grid", total=len(combos))
-            for p, win, step, refit in combos:
+            for p, win, step, refit, burn_in in combos:
                 strategy = RegimeRotationStrategy(
                     growth_tickers=growth_tickers,
                     defensive_tickers=defensive_tickers,
@@ -292,7 +293,7 @@ class RegimeRotationStrategy:
                     step=step,
                     refit_every=refit,
                     p_dim=p,
-                    shift=True,
+                    burn_in_segments=burn_in
                 )
                 try:
                     if distence_metric == "wkmeans":
@@ -313,11 +314,11 @@ class RegimeRotationStrategy:
                     continue
 
                 results.append(result.metrics)
-                index.append((p, win, step, refit))
+                index.append((p, win, step, refit, burn_in))
                 progress.advance(task)
                 progress.refresh()
 
-        idx = pd.MultiIndex.from_tuples(index, names=["p", "window", "step", "refit_every"])
+        idx = pd.MultiIndex.from_tuples(index, names=["p", "window", "step", "refit_every", "burn_in"])
         return pd.DataFrame(results, index=idx).sort_values("sharpe", ascending=False)
 
 
