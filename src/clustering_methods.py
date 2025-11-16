@@ -381,12 +381,11 @@ class MomentKMeans:
 
         self.centroids_ = C
         self.labels_ = labels
-        label_output: Union[np.ndarray, pd.Series]
         if index is not None:
-            label_output = pd.Series(labels, index=index)
+            self.labels_ = pd.Series(labels, index=index)
         else:
-            label_output = labels
-        return MKMeansResult(C, label_output, losses, it)
+            self.labels_ = labels
+        return MKMeansResult(C, self.labels_, losses, it)
 
     def predict(self, segments: List[np.ndarray]) -> Union[np.ndarray, pd.Series]:
         """

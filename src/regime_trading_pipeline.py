@@ -41,6 +41,7 @@ class RegimeRotationStrategy:
         p_dim: int = 2,
         shift: bool = True,
         weighting: Literal["equal", "market_cap"] = "equal",
+        distance: Literal["wasserstein", "moment"] = "wasserstein",
     ) -> None:
         self.growth_tickers = list(growth_tickers)
         self.defensive_tickers = list(defensive_tickers)
@@ -57,13 +58,16 @@ class RegimeRotationStrategy:
         self.weighting = weighting.lower()
         if self.weighting not in {"equal", "market_cap"}:
             raise ValueError("weighting must be 'equal' or 'market_cap'")
+        self.distance = distance.lower()
+        if self.distance not in {"wasserstein", "moment"}:
+            raise ValueError("distance must be 'wasserstein' or 'moment'")
         self.regime_series: Optional[pd.Series] = None
         self._signal_returns: Optional[pd.Series] = None
         self.growth_returns_modes: Dict[str, pd.Series] = {}
         self.defensive_returns_modes: Dict[str, pd.Series] = {}
         self.spy_returns: Optional[pd.Series] = None
 
-    def fit_wkmeans(self) -> pd.Series:
+    def fit_kmeans(self) -> pd.Series:
         signal_returns = load_signal(self.signal_csv, self.start_date, self.end_date)["Return"]
         segments = segment_time_series(signal_returns, self.window, self.step)
         if len(segments) <= self.burn_in_segments:
@@ -74,46 +78,23 @@ class RegimeRotationStrategy:
         prev_centroids: Optional[List[np.ndarray]] = None
         while idx < len(segments):
             history = segments.iloc[idx - self.burn_in_segments : idx].tolist()
-            model = WassersteinKMeans(
-                n_clusters=self.n_clusters,
-                p_dim=self.p_dim,
-                max_iter=500,
-                random_state=42,
-            )
-            model.fit(history, initial_centroids=prev_centroids)
-            prev_centroids = [c.copy() for c in model.centroids_]
-            end = min(idx + self.refit_every, len(segments))
-            preds = model.predict(segments.iloc[idx:end].tolist())
-            for offset, lbl in enumerate(preds):
-                labels[idx + offset] = int(lbl)
-            idx = end
-
-        regime_series = pd.Series(labels, index=segments.index, dtype="float").dropna().astype(int)
-        regime_df = regime_series.to_frame(name="label")
-        regime_df["effective_date"] = regime_df.index.normalize()
-        # Roll signal to the next day if hour > 16
-        regime_df.loc[regime_df.index.hour > 16, "effective_date"] += pd.offsets.BusinessDay(1)
-        self.regime_series = regime_df.groupby("effective_date")["label"].last().sort_index()
-        self._signal_returns = signal_returns
-        return self.regime_series
-
-    def fit_mkmeans(self) -> pd.Series:
-        signal_returns = load_signal(self.signal_csv, self.start_date, self.end_date)["Return"]
-        segments = segment_time_series(signal_returns, self.window, self.step)
-        if len(segments) <= self.burn_in_segments:
-            raise ValueError("Not enough segments to cover burn-in period")
-
-        labels: List[Optional[int]] = [None] * len(segments)
-        idx = self.burn_in_segments
-        while idx < len(segments):
-            history = segments.iloc[idx - self.burn_in_segments : idx].tolist()
-            model = MomentKMeans(
-                n_clusters=self.n_clusters,
-                p_dim=self.p_dim,
-                max_iter=500,
-                random_state=42,
-            )
-            model.fit(history)
+            if self.distance == "wasserstein":
+                model = WassersteinKMeans(
+                    n_clusters=self.n_clusters,
+                    p_dim=self.p_dim,
+                    max_iter=500,
+                    random_state=42,
+                )
+                model.fit(history, initial_centroids=prev_centroids)
+                prev_centroids = [c.copy() for c in model.centroids_]
+            elif self.distance == "moment":
+                model = MomentKMeans(
+                    n_clusters=self.n_clusters,
+                    p_dim=self.p_dim,
+                    max_iter=500,
+                    random_state=42,
+                )
+                model.fit(history)
             end = min(idx + self.refit_every, len(segments))
             preds = model.predict(segments.iloc[idx:end].tolist())
             for offset, lbl in enumerate(preds):
@@ -269,7 +250,6 @@ class RegimeRotationStrategy:
         defensive_tickers: Sequence[str],
         start_date: str = "2014-05-25",
         end_date: str = "2025-11-01",
-        distence_metric: Literal["wkmeans", "mkmeans"] = "wkmeans",
         p_dims=(2,),
         windows=(360,),
         steps=(12,),
@@ -296,10 +276,7 @@ class RegimeRotationStrategy:
                     burn_in_segments=burn_in,
                 )
                 try:
-                    if distence_metric == "wkmeans":
-                        strategy.fit_wkmeans()
-                    elif distence_metric == "mkmeans":
-                        strategy.fit_mkmeans()
+                    strategy.fit_kmeans()
                     strategy.build_returns()
                     result = strategy.backtest(
                         allocations={
@@ -327,28 +304,7 @@ def main():
 
     os.chdir("./src")
 
-    growth = [
-        "ADBE",
-        "CRM",
-        "LULU",
-        "ORLY",
-        "COST",
-        "TMO",
-        "LIN",
-        "ACN",
-        "MA",
-        "V",
-        "SPGI",
-        "MCO",
-        "DHR",
-        "SHW",
-        "INTU",
-        "NFLX",
-        "NOW",
-        "SNPS",
-        "ISRG",
-        "CDNS",
-    ]
+    growth = ["ADBE", "CRM", "LULU", "ORLY", "COST", "TMO", "LIN", "ACN", "MA", "V", "SPGI", "MCO", "DHR", "SHW", "INTU", "NFLX", "NOW", "SNPS", "ISRG", "CDNS"]
     defensive = ["EPD", "VZ", "O", "GIS", "BMY", "KMB", "CVX", "PSA", "PEP", "XOM", "DUK", "ED", "GPC", "WEC", "LMT", "KO", "PG", "JNJ", "CL", "MCD"]
 
     strategy = RegimeRotationStrategy(

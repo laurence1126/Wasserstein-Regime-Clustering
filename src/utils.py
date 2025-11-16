@@ -209,6 +209,41 @@ def plot_regimes_over_price(
     plt.show()
 
 
+def simulate_merton_jump_diffusion(
+    T=1.0,
+    N=252,
+    S0=100,
+    mu=0.05,
+    sigma=0.2,
+    lam=1.0,
+    gamma=-0.05,
+    delta=0.1,
+    random_state=None,
+):
+    """Simulate a price path under the Merton jump-diffusion model."""
+    rng = np.random.default_rng(random_state)
+
+    dt = T / N
+    times = np.linspace(0.0, T, N + 1)
+    prices = np.empty(N + 1)
+    prices[0] = S0
+    log_price = np.log(S0)
+    jumps = 0
+
+    drift = (mu - 0.5 * sigma**2) * dt
+    vol_term = sigma * np.sqrt(dt)
+
+    for t in range(1, N + 1):
+        diffusion = drift + vol_term * rng.standard_normal()
+        n_jumps = rng.poisson(lam * dt)
+        jump_term = rng.normal(gamma, delta, n_jumps).sum() if n_jumps else 0.0
+        jumps += n_jumps
+        log_price += diffusion + jump_term
+        prices[t] = np.exp(log_price)
+
+    return times, prices, jumps
+
+
 def load_signal(signal_path: str | Path, start_date: str = None, end_date: str = None) -> pd.DataFrame:
     names = ["Date", "Hour", "Open", "High", "Low", "Close", "Volume"]
     df = pd.read_csv(signal_path, sep=";", names=names)
@@ -337,7 +372,7 @@ def download_market_caps(tickers: Sequence[str], start: str, end: str) -> pd.Dat
     shares_df = shares_df[tickers]
     market_cap_df = price * shares_df
     if "SPY" in market_cap_df.columns:
-        market_cap_df.drop(columns=["SPY"])
+        market_cap_df = market_cap_df.drop(columns=["SPY"])
     market_cap_df.to_csv("../data/market_cap.csv")
 
     return market_cap_df
