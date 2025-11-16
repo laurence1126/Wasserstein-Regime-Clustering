@@ -3,8 +3,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from math import factorial
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Literal, Union
+from typing import Iterable, List, Optional, Literal, Union, Tuple
 from hmmlearn.hmm import GaussianHMM
+from scipy.interpolate import CubicSpline
+from scipy.ndimage import gaussian_filter1d
 import random
 
 from .constants import CLUSTER_PALETTE
@@ -178,6 +180,74 @@ class WassersteinKMeans:
         plt.title(title)
         plt.xlabel("Value")
         plt.ylabel("CDF")
+        plt.legend()
+        plt.grid(alpha=0.25)
+        plt.tight_layout()
+        plt.show()
+
+    def plot_centroids_pdf(
+        self,
+        num_points: int = 100,
+        padding_ratio: float = 0.1,
+        smooth_sigma: float = 3.0,
+        xlim: Optional[Tuple[float, float]] = None,
+        title: str = "WK-means Centroids PDFs (Smoothed)",
+    ):
+        """
+        Plot smooth PDF estimates of the WK-means centroids by
+        interpolating the empirical CDF with a natural cubic spline
+        and differentiating it numerically.
+
+        Parameters
+        ----------
+        num_points : int
+            Number of evaluation points in the PDF grid.
+        padding_ratio : float
+            Fraction of the centroid range used to pad the spline domain.
+        smooth_sigma : float
+            Standard deviation of the Gaussian filter applied to the PDF values
+            (in grid index units). Set to 0 to disable smoothing.
+        xlim : tuple(float, float) or None
+            Optional x-axis limits applied after plotting.
+        title : str
+            Plot title.
+        """
+        if self.centroids_ is None:
+            raise RuntimeError("Model not fitted yet.")
+
+        plt.figure(figsize=(8, 6))
+        cmap = plt.get_cmap("tab10", len(self.centroids_))
+        for i, centroid in enumerate(self.centroids_):
+            sorted_c = np.sort(centroid)
+            unique_vals, counts = np.unique(sorted_c, return_counts=True)
+            if unique_vals.size < 2:
+                # Degenerate centroid (all values equal) -> skip PDF.
+                continue
+            cdf_vals = np.cumsum(counts) / len(sorted_c)
+            span = unique_vals[-1] - unique_vals[0]
+            span = span if span > 0 else 1.0
+            pad = span * padding_ratio
+            cdf_x = np.concatenate(([unique_vals[0] - pad], unique_vals, [unique_vals[-1] + pad]))
+            cdf_y = np.concatenate(([0.0], cdf_vals, [1.0]))
+
+            try:
+                spline = CubicSpline(cdf_x, cdf_y, bc_type="natural", extrapolate=True)
+            except ValueError:
+                continue
+
+            grid = np.linspace(cdf_x[0], cdf_x[-1], num_points)
+            pdf_vals = np.clip(spline(grid, 1), 0, None)
+            if smooth_sigma > 0:
+                pdf_vals = gaussian_filter1d(pdf_vals, sigma=smooth_sigma, mode="nearest")
+
+            color = CLUSTER_PALETTE.get(i, cmap(i))
+            plt.plot(grid, pdf_vals, label=f"Centroid {i}", color=color)
+
+        plt.title(title)
+        plt.xlabel("Value")
+        plt.ylabel("PDF")
+        if xlim is not None:
+            plt.xlim(xlim)
         plt.legend()
         plt.grid(alpha=0.25)
         plt.tight_layout()

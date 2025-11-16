@@ -209,6 +209,19 @@ def plot_regimes_over_price(
     plt.show()
 
 
+def load_signal(signal_path: str | Path, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+    names = ["Date", "Hour", "Open", "High", "Low", "Close", "Volume"]
+    df = pd.read_csv(signal_path, sep=";", names=names)
+    df["timestamp"] = pd.to_datetime(df["Date"] + " " + df["Hour"], format="%d/%m/%Y %H:%M", dayfirst=True)
+    df = df.drop(columns=["Date", "Hour"]).set_index("timestamp").sort_index()
+    df["Return"] = df["Close"].pct_change()
+
+    start_date = start_date or df.index[0]
+    end_date = end_date or df.index[-1]
+    df = df[(end_date >= df.index) & (df.index >= start_date)]
+    return df.dropna(subset=["Return"])
+
+
 def download_prices(tickers: Sequence[str], start: str, end: str, field: str = "Close") -> pd.DataFrame:
     if Path.exists(Path("../data/stocks.csv")):
         df = pd.read_csv("../data/stocks.csv", index_col=0, header=0).astype(float)

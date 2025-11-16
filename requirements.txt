@@ -1,6 +1,7 @@
 numpy>=2.2
 pandas>=2.3
 matplotlib>=3.10
+scipy>=1.13
 yfinance>=0.2
 rich>=13.7
 hmmlearn>=0.3

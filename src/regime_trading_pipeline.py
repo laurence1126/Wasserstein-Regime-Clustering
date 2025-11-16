@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from .clusterings import WassersteinKMeans, MomentKMeans
-from .utils import segment_time_series, download_prices, download_market_caps
+from .utils import segment_time_series, download_prices, download_market_caps, load_signal
 
 
 @dataclass
@@ -63,18 +63,8 @@ class RegimeRotationStrategy:
         self.defensive_returns_modes: Dict[str, pd.Series] = {}
         self.spy_returns: Optional[pd.Series] = None
 
-    def _load_signal_returns(self) -> pd.Series:
-        names = ["date", "time", "open", "high", "low", "close", "volume"]
-        df = pd.read_csv(self.signal_csv, sep=";", names=names)
-        df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"], format="%d/%m/%Y %H:%M", dayfirst=True)
-        df = df.drop(columns=["date", "time"]).set_index("timestamp").sort_index()
-        df["close"] = pd.to_numeric(df["close"], errors="coerce")
-        df = df.dropna(subset=["close"])
-        df = df[(self.end_date >= df.index) & (df.index >= self.start_date)]
-        return df["close"].pct_change().dropna()
-
     def fit_wkmeans(self) -> pd.Series:
-        signal_returns = self._load_signal_returns()
+        signal_returns = load_signal(self.signal_csv, self.start_date, self.end_date)["Return"]
         segments = segment_time_series(signal_returns, self.window, self.step)
         if len(segments) <= self.burn_in_segments:
             raise ValueError("Not enough segments to cover burn-in period")
@@ -108,7 +98,7 @@ class RegimeRotationStrategy:
         return self.regime_series
 
     def fit_mkmeans(self) -> pd.Series:
-        signal_returns = self._load_signal_returns()
+        signal_returns = load_signal(self.signal_csv, self.start_date, self.end_date)["Return"]
         segments = segment_time_series(signal_returns, self.window, self.step)
         if len(segments) <= self.burn_in_segments:
             raise ValueError("Not enough segments to cover burn-in period")
