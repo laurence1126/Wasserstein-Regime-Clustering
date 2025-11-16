@@ -15,7 +15,7 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 ├── jupyter/
 │   ├── clustering_examples.ipynb        # walkthrough of segmentation + clustering
 │   ├── clustering_eval_examples.ipynb   # standalone evaluation notebook
-│   ├── jump_diffusion_compare.ipynb     # benchmark + visualization notebook
+│   ├── jump_diffusion_compare.ipynb     # jump-diffusion benchmark + visualization notebook
 │   └── trading.ipynb                    # end-to-end strategy analysis & plots
 ├── documents/
 │   ├── clustering_method.md        # auto-generated module docs
