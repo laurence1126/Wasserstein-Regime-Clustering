@@ -9,11 +9,13 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 │   ├── clustering_methods.py       # Wasserstein & moment K-means utilities
 │   ├── clustering_eval.py          # MMD calculator + clustering metrics
 │   ├── utils.py                    # segmentation, plotting, Yahoo helpers
+│   ├── jump_diffusion.py           # Merton jump-diffusion simulators + benchmark
 │   ├── constants.py                # shared palette & globals
 │   └── regime_trading_pipeline.py  # RegimeRotationStrategy & grid search
 ├── jupyter/
 │   ├── clustering_examples.ipynb        # walkthrough of segmentation + clustering
 │   ├── clustering_eval_examples.ipynb   # standalone evaluation notebook
+│   ├── jump_diffusion_compare.ipynb     # benchmark + visualization notebook
 │   └── trading.ipynb                    # end-to-end strategy analysis & plots
 ├── documents/
 │   ├── clustering_method.md        # auto-generated module docs
@@ -52,10 +54,19 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 - `RegimeRotationStrategy`: class encapsulating signal preparation, rolling WK-means fitting (with hot start), daily return construction (calling the shared `download_prices`/`download_market_caps` helpers), and backtesting for a growth vs. defensive rotation. Supports both equal-weight and market-cap-weighted legs via the `weighting` argument. `StrategyResult` includes strategy curve plus benchmark curves (SPY + each leg/allocation under both schemes when available).
 - `grid_search_regimes`: iterates across window/step/refit grids and reports metrics, with a `rich` progress bar.
 
+### `src/jump_diffusion.py`
+
+- `JumpDiffusionParams`: typed container for (μ, σ, λ, γ, δ).
+- `MertonJumpDiffusion`: class with `simulate_path` and `log_return_moments(dt)` for single-regime paths.
+- `RegimeSwitchingMerton`: bull/bear simulator with jittered regime windows (both change-point locations and optional per-window length perturbations via `length_jitter`). Call `simulate(...)` to reproduce Figure 9.
+- `MertonBenchmark`: orchestrates repeated simulations + clustering (Wasserstein vs. Moments by default) to produce the accuracy table (Section 3.3.2). Call `run(return_details=True)` to also retrieve the simulated price path, segmented windows, true regimes, and per-algorithm label Series—handy for piping into `plot_regimes_over_price`, `scatter_mean_variance`, etc. Optional helpers (`plot_accuracy_bars`, `plot_sample_path`) visualize aggregate accuracy or a representative run. `run_merton_benchmark` remains as a helper that instantiates the class.
+- Compatibility wrappers `simulate_merton_jump_diffusion` / `simulate_merton_jump_regimes` are provided for notebooks/scripts that previously imported them from `utils`.
+
 ## Notebooks (`jupyter/`)
 
 - **`clustering_examples.ipynb`** – walkthrough of segmenting SPX returns, fitting Wasserstein vs. moment K-means, visualizing regimes, and comparing clustering quality via MMD.
 - **`clustering_eval_examples.ipynb`** – dedicated evaluation notebook showing how to run `ClusteringMetrics`/MMD comparisons (Davies–Bouldin, Dunn, silhouette, bootstrapped MMD) on WK-means vs. moment K-means outputs.
+- **`jump_diffusion_compare.ipynb`** – generates the synthetic Merton benchmark table via `MertonBenchmark.run(return_details=True)` and pipes the stored price/segment/prediction Series into `plot_regimes_over_price` and `scatter_mean_variance` to contrast the true regimes with Wasserstein vs. Moment assignments.
 - **`trading.ipynb`** – uses `RegimeRotationStrategy` to fit regimes, run backtests with different allocation maps, plot equity curves (with drawdown highlights) and generate figures for reporting.
 
 ## Usage
