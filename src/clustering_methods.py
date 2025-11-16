@@ -21,6 +21,14 @@ class WKMeansResult:
 
 
 class WassersteinKMeans:
+    """
+    K-means variant that clusters 1D empirical distributions via the Wasserstein-p distance.
+    - Assign step computes pairwise Wp between samples and current centroids.
+    - Update step forms the Wasserstein barycenter (median for p=1, mean for p=2).
+
+    Works on lists/Series of equal-length segments, supports optional standardization and
+    warm-starts through `initial_centroids`.
+    """
     def __init__(
         self,
         n_clusters: int = 2,
@@ -30,6 +38,10 @@ class WassersteinKMeans:
         standardize: bool = False,
         random_state: Optional[int] = None,
     ):
+        if n_clusters < 2:
+            raise ValueError("n_clusters must be >= 2")
+        if p_dim != 1 and p_dim != 2:
+            raise ValueError("p_dim: not yet implemented")
         self.n_clusters = n_clusters
         self.p_dim = p_dim
         self.max_iter = max_iter
@@ -283,8 +295,8 @@ class MomentKMeans:
     ):
         if n_clusters < 2:
             raise ValueError("n_clusters must be >= 2")
-        if p_dim < 1:
-            raise ValueError("p_moments must be >= 1")
+        if p_dim < 2:
+            raise ValueError("p_dim must be >= 2")
         self.k = n_clusters
         self.p_dim = p_dim
         self.standardize = standardize
