@@ -9,6 +9,7 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 │   ├── clusterings.py          # Wasserstein & moment K-means utilities
 │   ├── utils.py                # segmentation, plotting, Yahoo helpers
 │   ├── MMD.py                  # MMD diagnostics/plots
+│   ├── constants.py            # shared palette & other global settings
 │   └── regime_trading_pipeline.py  # RegimeRotationStrategy & grid search
 ├── jupyter/
 │   ├── clustering_examples.ipynb   # exploratory WK-means / MMD visualisations
@@ -36,6 +37,10 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 ### `src/MMD.py`
 
 - `MMDCalculator`: RBF MMD implementation with between/within bootstrap routines and comparison plots used in the notebooks.
+
+### `src/constants.py`
+
+- `CLUSTER_PALETTE`: single source of truth for regime/cluster colors used across plotting utilities and notebooks. Import via `from src import CLUSTER_PALETTE` to keep figures consistent.
 
 - `RegimeRotationStrategy`: class encapsulating signal preparation, rolling WK-means fitting (with hot start), daily return construction (calling the shared `download_prices`/`download_market_caps` helpers), and backtesting for a growth vs. defensive rotation. Supports both equal-weight and market-cap-weighted legs via the `weighting` argument. `StrategyResult` includes strategy curve plus benchmark curves (SPY + each leg/allocation under both schemes when available).
 - `grid_search_regimes`: iterates across window/step/refit grids and reports metrics, with a `rich` progress bar.

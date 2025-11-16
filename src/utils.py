@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence
 
+from .constants import CLUSTER_PALETTE
+
 try:
     import yfinance as yf
 except ImportError:  # pragma: no cover
@@ -85,8 +87,7 @@ def scatter_mean_variance(segments, labels, title="Segments in Mean–Variance S
 
     unique_labels = np.unique(labels)
     cmap = plt.get_cmap("tab10", len(unique_labels))
-    palette = {0: "#4477AA", 1: "#228833", 2: "#EE6677", 3: "#CCBB44", 4: "#66CCEE", 5: "#AA3377", 6: "#BBBBBB"}
-    colors = {lab: palette.get(lab, cmap(i)) for i, lab in enumerate(unique_labels)}
+    colors = {lab: CLUSTER_PALETTE.get(lab, cmap(i)) for i, lab in enumerate(unique_labels)}
 
     plt.figure(figsize=(8, 6))
     for lab in unique_labels:
@@ -150,8 +151,7 @@ def plot_regimes_over_price(
     unique_labels = np.unique(point_labels)
     cmap = plt.get_cmap("tab10", len(unique_labels))
 
-    palette = {0: "#4477AA", 1: "#228833", 2: "#EE6677", 3: "#CCBB44", 4: "#66CCEE", 5: "#AA3377", 6: "#BBBBBB"}
-    label_colors = {lab: palette.get(lab, cmap(i)) for i, lab in enumerate(unique_labels)}
+    label_colors = {lab: CLUSTER_PALETTE.get(lab, cmap(i)) for i, lab in enumerate(unique_labels)}
     plotted = set()
     segments = []
     start_idx = 0
@@ -215,7 +215,7 @@ def download_prices(tickers: Sequence[str], start: str, end: str, field: str = "
         df.index = pd.to_datetime(df.index)
         missing = [t for t in tickers if t not in df.columns]
         if not missing:
-            return df
+            return df[(df.index >= start) & (df.index <= end)]
 
     if yf is None:
         raise ImportError("yfinance is required to download market data")
@@ -265,7 +265,7 @@ def download_market_caps(tickers: Sequence[str], start: str, end: str) -> pd.Dat
         df.index = pd.to_datetime(df.index)
         missing = [t for t in tickers if t not in df.columns]
         if not missing:
-            return df
+            return df[(df.index >= start) & (df.index <= end)]
 
     if not Path("../data/stocks.csv").exists():
         raise RuntimeError("You need to download stock prices first!")

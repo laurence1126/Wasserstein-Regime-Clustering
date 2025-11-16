@@ -24,7 +24,7 @@ class StrategyResult:
 
 
 class RegimeRotationStrategy:
-    """Encapsulates WK-means training and portfolio construction."""
+    """Encapsulates WK-means / MK-means training and portfolio construction."""
 
     def __init__(
         self,

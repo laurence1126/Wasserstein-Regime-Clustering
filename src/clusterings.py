@@ -7,6 +7,8 @@ from typing import Iterable, List, Optional, Literal, Union
 from hmmlearn.hmm import GaussianHMM
 import random
 
+from .constants import CLUSTER_PALETTE
+
 
 @dataclass
 class WKMeansResult:
@@ -166,12 +168,11 @@ class WassersteinKMeans:
             raise RuntimeError("Model not fitted yet.")
 
         plt.figure(figsize=(8, 6))
-        palette = {0: "#4477AA", 1: "#228833", 2: "#EE6677", 3: "#CCBB44", 4: "#66CCEE", 5: "#AA3377", 6: "#BBBBBB"}
         cmap = plt.get_cmap("tab10", len(self.centroids_))
         for i, c in enumerate(self.centroids_):
             sorted_c = np.sort(c)
             cdf = np.arange(1, len(c) + 1) / len(c)
-            color = palette.get(i, cmap(i))
+            color = CLUSTER_PALETTE.get(i, cmap(i))
             plt.plot(sorted_c, cdf, label=f"Centroid {i}", color=color)
 
         plt.title(title)

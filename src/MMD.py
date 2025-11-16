@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+from .constants import CLUSTER_PALETTE
+
 
 class MMDCalculator:
     """
@@ -57,10 +59,10 @@ class MMDCalculator:
             term_xx = Kxx.sum() / (nx * (nx - 1)) if nx > 1 else 0.0
             term_yy = Kyy.sum() / (ny * (ny - 1)) if ny > 1 else 0.0
         else:
-            term_xx = Kxx.mean()
-            term_yy = Kyy.mean()
+            term_xx = Kxx.sum() / (nx * nx)
+            term_yy = Kyy.sum() / (ny * ny)
 
-        term_xy = Kxy.mean()
+        term_xy = Kxy.sum() / (nx * ny)
         return float(term_xx + term_yy - 2.0 * term_xy)
 
     # ---------- BETWEEN-cluster bootstrap ----------
@@ -125,8 +127,8 @@ class MMDCalculator:
         title=r"Between-cluster MMD$^2$",
         names=("Wasserstein", "Moments"),
         figsize=(10, 5),
-        alpha_a=0.65,
-        alpha_b=0.55,
+        alpha_a=0.7,
+        alpha_b=0.6,
     ):
         """
         segments: list/array of equal-length windows (shape N x L)
@@ -154,8 +156,10 @@ class MMDCalculator:
         dist_b = self.bootstrap_between(XB, YB, B=B, m_per_group=m_per_group)
 
         fig, ax = plt.subplots(figsize=figsize)
-        ax.hist(dist_a, bins=bins, density=True, alpha=alpha_a, label=names[0], color=None)
-        ax.hist(dist_b, bins=bins, density=True, alpha=alpha_b, label=names[1], color=None)
+        fallback = plt.get_cmap("tab10")
+        colors = [CLUSTER_PALETTE.get(0, fallback(0)), CLUSTER_PALETTE.get(2, fallback(1))]
+        ax.hist(dist_a, bins=bins, density=True, alpha=alpha_a, label=names[0], color=colors[0])
+        ax.hist(dist_b, bins=bins, density=True, alpha=alpha_b, label=names[1], color=colors[1])
         ax.set_xlabel(r"$\mathrm{MMD}_b^2$")
         ax.set_ylabel("density")
         ax.set_title(title)
@@ -192,9 +196,11 @@ class MMDCalculator:
         B2 = self.bootstrap_within(YB, B=B, m_per_half=m_per_half)
 
         fig, axes = plt.subplots(1, 2, figsize=figsize, sharey=sharey)
+        fallback = plt.get_cmap("tab10")
+        colors = [CLUSTER_PALETTE.get(0, fallback(0)), CLUSTER_PALETTE.get(2, fallback(1))]
         # Panel 1: biggest cluster per method
-        axes[0].hist(A1, bins=bins, density=True, alpha=0.65, label=names[0])
-        axes[0].hist(B1, bins=bins, density=True, alpha=0.55, label=names[1])
+        axes[0].hist(A1, bins=bins, density=True, alpha=0.7, label=names[0], color=colors[0])
+        axes[0].hist(B1, bins=bins, density=True, alpha=0.6, label=names[1], color=colors[1])
         axes[0].set_title("Within-cluster MMD$^2$ (largest cluster)")
         axes[0].set_xlabel(r"$\mathrm{MMD}_b^2$")
         axes[0].set_ylabel("density")
@@ -202,8 +208,8 @@ class MMDCalculator:
         axes[0].grid(alpha=0.25)
 
         # Panel 2: second-largest cluster per method
-        axes[1].hist(A2, bins=bins, density=True, alpha=0.65, label=names[0])
-        axes[1].hist(B2, bins=bins, density=True, alpha=0.55, label=names[1])
+        axes[1].hist(A2, bins=bins, density=True, alpha=0.7, label=names[0], color=colors[0])
+        axes[1].hist(B2, bins=bins, density=True, alpha=0.6, label=names[1], color=colors[1])
         axes[1].set_title("Within-cluster MMD$^2$ (2nd largest cluster)")
         axes[1].set_xlabel(r"$\mathrm{MMD}_b^2$")
         axes[1].legend()
