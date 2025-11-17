@@ -29,6 +29,7 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 │   └── market_cap.csv              # derived market-cap time series
 ├── fig/
 │   ├── spx_regimes.png             # WK-means regime overlay (used in README)
+│   ├── mmd2_eval.png               # within-cluster MMD comparison figure
 │   └── equity_curve.png            # strategy equity curve illustration
 └── README.md
 ```
@@ -78,10 +79,16 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 
 ## Examples
 
-**WK-means regimes on SPX (2008–2025).** Hourly SPX closes are segmented into 15-trading-day windows (step 12 hours) and fed to `WassersteinKMeans(n_clusters=3, p_dim=2)` trained on 2008‑12‑11 through 2025‑10‑31. Cluster 2 (pink) flags high-volatility selloffs (GFC, COVID crash, 2022 tightening) while Clusters 0/1 capture expansionary and transition regimes. The plot comes from `plot_regimes_over_price(..., highlight_clusters=[2], highlight_min_width=300)`.
+**WK-means regimes on SPX (2008–2025).** Hourly SPX closes are segmented into 15-trading-day windows (step 12 hours) and fed to `WassersteinKMeans(n_clusters=3, p_dim=1)` trained on 2008‑12‑11 through 2025‑10‑31. Cluster 2 (pink) flags high-volatility selloffs (GFC, COVID crash, 2022 tightening) while Clusters 0/1 capture expansionary and transition regimes. The plot comes from `plot_regimes_over_price(..., highlight_clusters=[2], highlight_min_width=300)`.
 
 <p align="center">
   <img src="fig/spx_regimes.png" alt="SPX regimes" width="90%">
+</p>
+
+**Within-cluster MMD² comparison.** Bootstrapped maximum mean discrepancy estimates for the two largest clusters when fitting Wasserstein vs. moment K-means on the same SPX segments. Wasserstein clusters show tighter within-cluster homogeneity (left panel) and better separation in the second-largest cluster (right panel).
+
+<p align="center">
+  <img src="fig/mmd2_eval.png" alt="MMD comparison" width="90%">
 </p>
 
 **Rotation strategy equity curve (Oct 2020–Oct 2025).** `RegimeRotationStrategy` re-fits WK-means every 24 trading days on rolling 360 hours (15 days) windows, then allocates between a growth basket (NFLX, LULU, COST) and defensive basket (KO, PG, JNJ) using equal weights. The top panel benchmarks the regime-aware allocation against SPY and static growth/defensive portfolios, highlighting max drawdown in red; the lower strip shows the predicted regimes (0 = calm growth, 1 = transition, 2 = defensive) that drive allocation switches.
