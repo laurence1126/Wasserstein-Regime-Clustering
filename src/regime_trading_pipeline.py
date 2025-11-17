@@ -33,13 +33,13 @@ class RegimeRotationStrategy:
         start_date: str = "2014-05-25",  # 10 yrs data
         end_date: str = "2025-11-01",
         signal_csv: str | Path = "../data/SPX_hourly.csv",
-        window: int = 36,
+        window: int = 24,
         step: int = 6,
         burn_in_segments: int = 700,  # approx. 2 yrs
         refit_every: int = 48,
         n_clusters: int = 3,
         p_dim: int = 2,
-        shift: bool = True,
+        shift: bool = False,
         weighting: Literal["equal", "market_cap"] = "equal",
         distance: Literal["wasserstein", "moment"] = "wasserstein",
     ) -> None:
@@ -274,6 +274,7 @@ class RegimeRotationStrategy:
                     refit_every=refit,
                     p_dim=p,
                     burn_in_segments=burn_in,
+                    shift=True
                 )
                 try:
                     strategy.fit_kmeans()
@@ -310,12 +311,15 @@ def main():
     strategy = RegimeRotationStrategy(
         growth_tickers=growth,
         defensive_tickers=defensive,
-        start_date="2019-05-09",
-        window=360,
-        step=12,
+        start_date="2019-05-09",  # 5 yrs data (post covid)
+        p_dim=2,                  # W2 distance
+        window=360,               # approx. 15 days hourly return
+        step=12,                  # half a day
+        refit_every=48,           # refit MK-means every 24 days
+        shift=True                # avoid using future information
     )
 
-    strategy.fit_wkmeans()
+    strategy.fit_kmeans()
     strategy.build_returns()
 
     result = strategy.backtest(
