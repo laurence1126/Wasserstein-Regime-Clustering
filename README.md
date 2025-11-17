@@ -79,19 +79,31 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 
 ## Examples
 
-**WK-means regimes on SPX (2008–2025).** Hourly SPX closes are segmented into 15-trading-day windows (step 12 hours) and fed to `WassersteinKMeans(n_clusters=3, p_dim=1)` trained on 2008‑12‑11 through 2025‑10‑31. Cluster 2 (pink) flags high-volatility selloffs (GFC, COVID crash, 2022 tightening) while Clusters 0/1 capture expansionary and transition regimes. The plot comes from `plot_regimes_over_price(..., highlight_clusters=[2], highlight_min_width=300)`.
+**WK-means regimes on SPX (2008–2025).** Hourly SPX closes are segmented into 15-trading-day windows (step 12 hours) and fed to `WassersteinKMeans(n_clusters=3, p_dim=1)` trained on 2008‑12‑11 through 2025‑10‑31. Cluster 2 (pink) flags high-volatility selloffs (GFC, COVID crash, 2022 tightening) while Clusters 0/1 capture expansionary and transition regimes. The plot comes from `plot_regimes_over_price(..., highlight_clusters=[2], highlight_min_width=300)`. [Source: `clustering_examples.ipynb`](jupyter/clustering_examples.ipynb)
 
 <p align="center">
   <img src="fig/spx_regimes.png" alt="SPX regimes" width="90%">
 </p>
 
-**Within-cluster MMD² comparison.** Bootstrapped maximum mean discrepancy estimates for the two largest clusters when fitting Wasserstein vs. moment K-means on the same SPX segments. Wasserstein clusters show tighter within-cluster homogeneity (left panel) and better separation in the second-largest cluster (right panel).
+**Within-cluster MMD² comparison for SPX clustering.** Bootstrapped maximum mean discrepancy estimates for the two largest clusters when fitting Wasserstein vs. moment K-means on the same SPX segments. Wasserstein clusters show tighter within-cluster homogeneity (left panel) and better separation in the second-largest cluster (right panel). [Source: `clustering_eval_examples.ipynb`](jupyter/clustering_eval_examples.ipynb)
 
 <p align="center">
   <img src="fig/mmd2_eval.png" alt="MMD comparison" width="90%">
 </p>
 
-**Rotation strategy equity curve (Oct 2020–Oct 2025).** `RegimeRotationStrategy` re-fits WK-means every 24 trading days on rolling 360 hours (15 days) windows, then allocates between a growth basket (NFLX, LULU, COST) and defensive basket (KO, PG, JNJ) using equal weights. The top panel benchmarks the regime-aware allocation against SPY and static growth/defensive portfolios, highlighting max drawdown in red; the lower strip shows the predicted regimes (0 = calm growth, 1 = transition, 2 = defensive) that drive allocation switches.
+**Merton Jump Diffusion benchmark accuracy vs. runtime (50 runs, seed 42).** `MertonBenchmark` comparing Wasserstein K-means, Moment K-means, and an HMM baseline using window grids `{ "Wasserstein": (72, 12), "Moment": (360, 6) }`. Each run draws alternating bull/bear regimes and simulates the valuation path via `RegimeSwitchingMerton`, i.e., geometric Brownian motion with drift/volatility $(\mu_i, \sigma_i)$ plus Poisson jump arrivals $\lambda_i$ whose jump sizes follow Normal $(\gamma_i, \delta_i)$ inside each regime. Metrics report mean ± std for total accuracy and conditioned on the true regime, along with per-run wall-clock time. [Source: `jump_diffusion_compare.ipynb`](jupyter/jump_diffusion_compare.ipynb)
+
+<p align="center">
+
+| Algorithm   |              Total |          Regime-on |         Regime-off |           Runtime |
+| ----------- | -----------------: | -----------------: | -----------------: | ----------------: |
+| Wasserstein | **94.14% ± 4.89%** | **90.20% ± 7.15%** |     95.48% ± 5.35% |     0.75s ± 0.06s |
+| Moment      |     79.43% ± 1.17% |     19.84% ± 4.41% | **99.63% ± 0.11%** | **0.15s ± 0.00s** |
+| HMM         |     65.25% ± 6.96% |     39.40% ± 7.49% |     74.31% ± 9.07% |     0.25s ± 0.00s |
+
+</p>
+
+**Rotation strategy equity curve (Oct 2020–Oct 2025).** `RegimeRotationStrategy` re-fits WK-means every 24 trading days on rolling 360 hours (15 days) windows, then allocates between a growth basket (NFLX, LULU, COST) and defensive basket (KO, PG, JNJ) using equal weights. The top panel benchmarks the regime-aware allocation against SPY and static growth/defensive portfolios, highlighting max drawdown in red; the lower strip shows the predicted regimes (0 = calm growth, 1 = transition, 2 = defensive) that drive allocation switches. [Source: `trading.ipynb`](jupyter/trading.ipynb)
 
 <p align="center">
   <img src="fig/equity_curve.png" alt="Strategy equity curve" width="90%">
@@ -101,13 +113,13 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 
 <p align="center">
 
-| Portfolio     | cumulative_return | annual_return | annual_volatility | sharpe | max_drawdown |
-| ------------- | ----------------: | ------------: | ----------------: | -----: | -----------: |
-| Strategy      |             1.822 |         0.231 |             0.147 |  1.578 |       -0.119 |
-| GrowthOnly    |             0.937 |         0.142 |             0.208 |  0.683 |       -0.324 |
-| EqualWeight   |             0.810 |         0.126 |             0.141 |  0.897 |       -0.170 |
-| DefensiveOnly |             0.616 |         0.101 |             0.122 |  0.830 |       -0.126 |
-| SPY           |             1.233 |         0.175 |             0.172 |  1.020 |       -0.245 |
+| Portfolio     | cumulative_return | annual_return | annual_volatility |    sharpe | max_drawdown |
+| ------------- | ----------------: | ------------: | ----------------: | --------: | -----------: |
+| Strategy      |         **1.822** |     **0.231** |             0.147 | **1.578** |   **-0.119** |
+| GrowthOnly    |             0.937 |         0.142 |             0.208 |     0.683 |       -0.324 |
+| EqualWeight   |             0.810 |         0.126 |             0.141 |     0.897 |       -0.170 |
+| DefensiveOnly |             0.616 |         0.101 |         **0.122** |     0.830 |       -0.126 |
+| SPY           |             1.233 |         0.175 |             0.172 |     1.020 |       -0.245 |
 
 </p>
 

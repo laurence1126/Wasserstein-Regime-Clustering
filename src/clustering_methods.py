@@ -5,6 +5,7 @@ from math import factorial
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Literal, Union, Tuple
 from hmmlearn.hmm import GaussianHMM
+from hmmlearn import base as hmm_base, _utils
 from scipy.interpolate import CubicSpline
 from scipy.ndimage import gaussian_filter1d
 import random
@@ -29,6 +30,7 @@ class WassersteinKMeans:
     Works on lists/Series of equal-length segments, supports optional standardization and
     warm-starts through `initial_centroids`.
     """
+
     def __init__(
         self,
         n_clusters: int = 2,
@@ -415,6 +417,45 @@ class MomentKMeans:
         return preds
 
 
+class _StableGaussianHMM(GaussianHMM):
+    """GaussianHMM variant that avoids k-means initialization instabilities."""
+
+    def _init(self, X, lengths=None):
+        hmm_base.BaseHMM._init(self, X, lengths)
+        if self._needs_init("m", "means_"):
+            self.means_ = self._init_means(X)
+        if self._needs_init("c", "covars_"):
+            cv = np.cov(X.T) + self.min_covar * np.eye(X.shape[1])
+            if not cv.shape:
+                cv.shape = (1, 1)
+            self.covars_ = _utils.distribute_covar_matrix_to_match_covariance_type(cv, self.covariance_type, self.n_components).copy()
+
+    def _init_means(self, X: np.ndarray) -> np.ndarray:
+        n_samples = X.shape[0]
+        if n_samples == 0:
+            raise ValueError("GaussianHMM requires at least one observation.")
+        if n_samples >= self.n_components:
+            quantiles = np.linspace(0.0, 1.0, self.n_components + 2)[1:-1]
+            means = np.quantile(X, quantiles, axis=0)
+        else:
+            means = np.repeat(np.mean(X, axis=0, keepdims=True), self.n_components, axis=0)
+        means = np.atleast_2d(means)
+        if means.shape[0] != self.n_components:
+            means = np.resize(means, (self.n_components, means.shape[1]))
+        return self._spread_if_degenerate(means, X)
+
+    def _spread_if_degenerate(self, means: np.ndarray, X: np.ndarray) -> np.ndarray:
+        unique = np.unique(np.round(means, decimals=10), axis=0)
+        if unique.shape[0] == self.n_components:
+            return means
+        base = np.mean(X, axis=0, keepdims=True)
+        scale = np.std(X, axis=0, ddof=0, keepdims=True)
+        scale[scale == 0] = 1.0
+        offsets = (np.arange(self.n_components) - (self.n_components - 1) / 2.0)[:, None]
+        jitter = offsets * (1e-3 * scale)
+        return base + jitter
+
+
 @dataclass
 class HMMClusteringResult:
     labels: Union[np.ndarray, pd.Series]
@@ -424,7 +465,8 @@ class HMMClusteringResult:
 
 
 class HMMClustering:
-    def __init__(self, n_states=3, covariance_type="full", random_state=None):
+
+    def __init__(self, n_states=3, covariance_type="spherical", random_state=None):
         self.n_states = n_states
         self.covariance_type = covariance_type
         self.random_state = random_state
@@ -446,7 +488,11 @@ class HMMClustering:
 
     def fit(self, X) -> HMMClusteringResult:
         obs, index = self._prepare_observations(X)
-        model = GaussianHMM(n_components=self.n_states, covariance_type=self.covariance_type, random_state=self.random_state)
+        model = _StableGaussianHMM(
+            n_components=self.n_states,
+            covariance_type=self.covariance_type,
+            random_state=self.random_state,
+        )
         model.fit(obs)
         hidden_states = model.predict(obs)
 

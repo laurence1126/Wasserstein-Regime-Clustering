@@ -8,7 +8,7 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, 
 
 import numpy as np
 import pandas as pd
-from .clustering_methods import MomentKMeans, WassersteinKMeans
+from .clustering_methods import HMMClustering, MomentKMeans, WassersteinKMeans
 
 
 class JumpDiffusionParams(NamedTuple):
@@ -272,7 +272,7 @@ class MertonBenchmark:
     def __init__(
         self,
         n_runs: int = 50,
-        window: int = 360,
+        window: int = 72,
         step: int = 12,
         total_years: float = 20.0,
         steps_per_year: int = 252 * 24,
@@ -284,6 +284,7 @@ class MertonBenchmark:
         jitter_fraction: float = 0.5,
         random_state: Optional[int] = None,
         algorithms: Optional[Dict[str, Callable[[Optional[int]], object]]] = None,
+        algorithm_windows: Optional[Dict[str, Tuple[int, int]]] = None,
     ):
         self.n_runs = n_runs
         self.window = window
@@ -298,6 +299,7 @@ class MertonBenchmark:
         self.jitter_fraction = jitter_fraction
         self.random_state = random_state
         self.algorithms = algorithms
+        self.algorithm_windows = algorithm_windows or {}
 
     @staticmethod
     def _accuracy(pred: np.ndarray, truth: np.ndarray) -> float:
@@ -322,6 +324,7 @@ class MertonBenchmark:
         return {
             "Wasserstein": lambda seed: WassersteinKMeans(n_clusters=2, p_dim=2, max_iter=500, random_state=seed),
             "Moment": lambda seed: MomentKMeans(n_clusters=2, p_dim=2, max_iter=500, random_state=seed),
+            "HMM": lambda seed: HMMClustering(n_states=2, random_state=seed, covariance_type="full"),
         }
 
     @staticmethod
@@ -329,6 +332,12 @@ class MertonBenchmark:
         from .utils import segment_time_series
 
         return segment_time_series(series, window=window, step=step)
+
+    def _algo_window_step(self, name: str) -> Tuple[int, int]:
+        if name in self.algorithm_windows:
+            win, stp = self.algorithm_windows[name]
+            return int(win), int(stp)
+        return self.window, self.step
 
     def run(self, return_details: bool = False):
         rng = np.random.default_rng(self.random_state)
@@ -350,15 +359,23 @@ class MertonBenchmark:
         for _ in range(self.n_runs):
             sim_seed = int(rng.integers(0, 2**31 - 1))
             sim = simulate_merton_jump_regimes(random_state=sim_seed, **sim_kwargs)
-            prices = pd.Series(sim["prices"], index=sim["times"])
-            returns = pd.Series(sim["log_returns"], index=sim["times"][1:])
-            segments = self._segment(returns, window=self.window, step=self.step)
-            truth_series = pd.Series(sim["regimes"], index=sim["times"]).reindex(segments.index).astype(int)
-            truth = truth_series.to_numpy(dtype=int)
+            prices = pd.Series(sim["prices"], index=sim["times"]).dropna()
+            returns = pd.Series(sim["log_returns"], index=sim["times"][1:]).dropna()
+            regime_series = pd.Series(sim["regimes"], index=sim["times"])
+            segment_cache: Dict[Tuple[int, int], pd.Series] = {}
+
+            def _get_segments(window: int, step: int) -> pd.Series:
+                key = (window, step)
+                if key not in segment_cache:
+                    segment_cache[key] = self._segment(returns, window=window, step=step)
+                return segment_cache[key]
+
+            default_segments = _get_segments(self.window, self.step)
+            truth_default = regime_series.reindex(default_segments.index).astype(int)
             record = {
                 "prices": prices,
-                "segments": segments,
-                "truth": truth_series,
+                "segments": {"Truth": default_segments},
+                "truth": truth_default,
                 "predictions": {},
                 "regime_intervals": sim["regime_intervals"],
             }
@@ -366,25 +383,51 @@ class MertonBenchmark:
             for algo_name, factory in algorithms.items():
                 algo_seed = int(rng.integers(0, 2**31 - 1))
                 model = factory(algo_seed)
+                algo_window, algo_step = self._algo_window_step(algo_name)
+                segments = _get_segments(algo_window, algo_step)
+                record["segments"][algo_name] = segments
+                using_hmm = isinstance(model, HMMClustering)
+                fit_input = returns if using_hmm else segments
                 start = perf_counter()
-                result = model.fit(segments)
+                result = model.fit(fit_input)
                 runtime = perf_counter() - start
                 labels = getattr(result, "labels", result)
-                if isinstance(labels, pd.Series):
+                if using_hmm:
+                    if isinstance(labels, pd.Series):
+                        pred_series = labels.reindex(segments.index)
+                    else:
+                        label_index = returns.index[: len(labels)]
+                        pred_series = pd.Series(labels, index=label_index)
+                        pred_series = pred_series.reindex(segments.index)
+                    pred_series = pred_series.ffill()
+                    if pred_series.isna().any():
+                        raise ValueError(f"HMM predictions cannot be aligned with segment windows for {algo_name}.")
+                    pred_series = pred_series.astype(int)
+                elif isinstance(labels, pd.Series):
                     pred_series = labels.reindex(segments.index).astype(int)
-                    preds = pred_series.to_numpy(dtype=int)
                 else:
-                    preds = np.asarray(labels, dtype=int)
-                    pred_series = pd.Series(preds, index=segments.index)
+                    pred_series = pd.Series(np.asarray(labels, dtype=int), index=segments.index, dtype=int)
 
-                total_acc = self._accuracy(preds, truth)
-                on_mask = truth == 1
-                off_mask = truth == 0
+                pred_series = pred_series.sort_index()
+                truth_series = regime_series.reindex(pred_series.index).astype(float)
+                comparison = pd.DataFrame({"pred": pred_series, "truth": truth_series}).dropna()
+                if comparison.empty:
+                    total_acc = float("nan")
+                    on_acc = float("nan")
+                    off_acc = float("nan")
+                else:
+                    preds_arr = comparison["pred"].to_numpy(dtype=int)
+                    truth_arr = comparison["truth"].to_numpy(dtype=int)
+                    total_acc = self._accuracy(preds_arr, truth_arr)
+                    on_mask = truth_arr == 1
+                    off_mask = truth_arr == 0
+                    on_acc = self._accuracy(preds_arr[on_mask], truth_arr[on_mask])
+                    off_acc = self._accuracy(preds_arr[off_mask], truth_arr[off_mask])
                 stats[algo_name].append(
                     _BenchmarkStats(
                         total=total_acc,
-                        regime_on=self._accuracy(preds[on_mask], truth[on_mask]),
-                        regime_off=self._accuracy(preds[off_mask], truth[off_mask]),
+                        regime_on=on_acc,
+                        regime_off=off_acc,
                         runtime=runtime,
                     )
                 )
@@ -406,7 +449,7 @@ class MertonBenchmark:
                 }
             )
 
-        table = pd.DataFrame(rows).set_index("Algorithm").sort_index()
+        table = pd.DataFrame(rows).set_index("Algorithm")
         if return_details:
             return table, details, stats
         return table

@@ -173,7 +173,7 @@ def plot_regimes_over_price(
         color = label_colors[lab]
         label = f"Cluster {lab}" if lab not in plotted else None
         plotted.add(lab)
-        ax.plot(times_seg, prices_seg, color=color, label=label)
+        ax.plot(times_seg, prices_seg, color=color, label=label, zorder=lab)
         if lab in highlight_set:
             if span_start is None:
                 span_start = times_seg[0]
