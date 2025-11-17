@@ -27,6 +27,9 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 │   ├── SPX_hourly.csv              # hourly SPX prices (signal driver)
 │   ├── stocks.csv                  # cached Yahoo Finance closes
 │   └── market_cap.csv              # derived market-cap time series
+├── fig/
+│   ├── spx_regimes.png             # WK-means regime overlay (used in README)
+│   └── equity_curve.png            # strategy equity curve illustration
 └── README.md
 ```
 
@@ -72,6 +75,34 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 - **`clustering_eval_examples.ipynb`** – dedicated evaluation notebook showing how to run `ClusteringMetrics`/MMD comparisons (Davies–Bouldin, Dunn, silhouette, bootstrapped MMD) on WK-means vs. moment K-means outputs.
 - **`jump_diffusion_compare.ipynb`** – generates the synthetic Merton benchmark table via `MertonBenchmark.run(return_details=True)` and pipes the stored price/segment/prediction Series into `plot_regimes_over_price` and `scatter_mean_variance` to contrast the true regimes with Wasserstein vs. Moment assignments.
 - **`trading.ipynb`** – uses `RegimeRotationStrategy` to fit regimes, run backtests with different allocation maps, plot equity curves (with drawdown highlights) and generate figures for reporting.
+
+## Examples
+
+**WK-means regimes on SPX (2008–2025).** Hourly SPX closes are segmented into 15-trading-day windows (step 12 hours) and fed to `WassersteinKMeans(n_clusters=3, p_dim=2)` trained on 2008‑12‑11 through 2025‑10‑31. Cluster 2 (pink) flags high-volatility selloffs (GFC, COVID crash, 2022 tightening) while Clusters 0/1 capture expansionary and transition regimes. The plot comes from `plot_regimes_over_price(..., highlight_clusters=[2], highlight_min_width=300)`.
+
+<p align="center">
+  <img src="fig/spx_regimes.png" alt="SPX regimes" width="90%">
+</p>
+
+**Rotation strategy equity curve (Oct 2020–Oct 2025).** `RegimeRotationStrategy` re-fits WK-means every 24 trading days on rolling 360 hours (15 days) windows, then allocates between a growth basket (NFLX, LULU, COST) and defensive basket (KO, PG, JNJ) using equal weights. The top panel benchmarks the regime-aware allocation against SPY and static growth/defensive portfolios, highlighting max drawdown in red; the lower strip shows the predicted regimes (0 = calm growth, 1 = transition, 2 = defensive) that drive allocation switches.
+
+<p align="center">
+  <img src="fig/equity_curve.png" alt="Strategy equity curve" width="90%">
+</p>
+
+**Backtest summary statistics.** Same run as the equity-curve figure, summarizing cumulative/annual returns, annualized volatility, Sharpe, and max drawdown for each sleeve.
+
+<p align="center">
+
+| Portfolio     | cumulative_return | annual_return | annual_volatility | sharpe | max_drawdown |
+| ------------- | ----------------: | ------------: | ----------------: | -----: | -----------: |
+| Strategy      |             1.822 |         0.231 |             0.147 |  1.578 |       -0.119 |
+| GrowthOnly    |             0.937 |         0.142 |             0.208 |  0.683 |       -0.324 |
+| EqualWeight   |             0.810 |         0.126 |             0.141 |  0.897 |       -0.170 |
+| DefensiveOnly |             0.616 |         0.101 |             0.122 |  0.830 |       -0.126 |
+| SPY           |             1.233 |         0.175 |             0.172 |  1.020 |       -0.245 |
+
+</p>
 
 ## Usage
 
