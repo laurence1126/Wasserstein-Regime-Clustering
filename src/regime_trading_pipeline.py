@@ -21,6 +21,7 @@ class StrategyResult:
     signal_series: pd.Series
     weights: pd.DataFrame
     metrics: Dict[str, float]
+    allocations: Dict[int, Dict[str, float]]
 
 
 class RegimeRotationStrategy:
@@ -223,6 +224,7 @@ class RegimeRotationStrategy:
             signal_series=regime_series,
             weights=weights,
             metrics=metrics,
+            allocations=allocations
         )
 
     @staticmethod
