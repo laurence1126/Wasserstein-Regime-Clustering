@@ -287,8 +287,8 @@ class MertonBenchmark:
         algorithm_windows: Optional[Dict[str, Tuple[int, int]]] = None,
     ):
         self.n_runs = n_runs
-        self.window = window
-        self.step = step
+        self.window = algorithm_windows["Wasserstein"][0] if "Wasserstein" in algorithm_windows.keys() else window
+        self.step = algorithm_windows["Wasserstein"][1] if "Wasserstein" in algorithm_windows.keys() else step
         self.total_years = total_years
         self.steps_per_year = steps_per_year
         self.theta_bull = theta_bull
