@@ -51,6 +51,21 @@ strategy = RegimeRotationStrategy(
 strategy.fit_wkmeans()
 strategy.build_returns()
 result = strategy.backtest()
+
+from src.performance_toolkit import RegimePerformanceToolkit
+toolkit = RegimePerformanceToolkit(result)
+summary = toolkit.summary_table()
+toolkit.plot_equity_and_drawdown()
 ```
 
 For systematic tuning, call `grid_search_regimes(...)` with desired parameter grids.
+
+## Performance toolkit
+
+`RegimePerformanceToolkit` (in `src/performance_toolkit.py`) consumes a `StrategyResult` and surfaces:
+
+- `summary_table()`, `monthly_returns_table()`, `drawdown_table()`, and `regime_stats()` for rich metrics (Sharpe, Sortino, Calmar, ulcer index, longest drawdown, turnover, regime weight bias, hit rates, etc.), formatted as percentages for easier reading.
+- `average_holding_period()` and `regime_transition_matrix()` to inspect allocation persistence.
+- Plot helpers including `plot_equity_and_drawdown`, `plot_rolling_metrics`, `plot_weight_stack`, `plot_regime_performance`, and the combined `plot_correlation_and_transitions()` (return correlations + transition probabilities) among others.
+
+Use it immediately after `strategy.backtest()` to keep notebooks/CLI scripts light while still exposing detailed diagnostics.

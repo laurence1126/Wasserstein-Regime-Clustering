@@ -11,6 +11,7 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 │   ├── jump_diffusion.py           # Merton jump-diffusion simulators + benchmark
 │   ├── utils.py                    # segmentation, plotting, Yahoo helpers
 │   ├── constants.py                # shared palette & globals
+│   ├── performance_toolkit.py      # strategy analytics & visualization helpers
 │   └── regime_trading_pipeline.py  # RegimeRotationStrategy & grid search
 ├── jupyter/
 │   ├── clustering_examples.ipynb        # walkthrough of segmentation + clustering
@@ -58,6 +59,12 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 ### `src/constants.py`
 
 - `CLUSTER_PALETTE`: single source of truth for regime/cluster colors used across plotting utilities and notebooks. Import via `from src import CLUSTER_PALETTE` to keep figures consistent.
+
+### `src/performance_toolkit.py`
+
+- `RegimePerformanceToolkit`: wraps a `StrategyResult` and surfaces rich analytics (summary/regime tables, monthly heat maps, drawdown listings, regime transition probabilities, holding-period stats, etc.). Tables now emit percent-formatted returns/drawdowns for readability. Plot helpers cover `plot_equity_and_drawdown`, `plot_rolling_metrics`, `plot_weight_stack`, `plot_regime_performance`, and the combined `plot_correlation_and_transitions()` (return correlations + regime transition matrix) alongside other utilities. Instantiate it right after `strategy.backtest()` to explore diagnostics with a consistent API.
+
+### `src/regime_trading_pipeline.py`
 
 - `RegimeRotationStrategy`: class encapsulating signal preparation, rolling WK-means fitting (with hot start), daily return construction (calling the shared `download_prices`/`download_market_caps` helpers), and backtesting for a growth vs. defensive rotation. Supports both equal-weight and market-cap-weighted legs via the `weighting` argument. `StrategyResult` includes strategy curve plus benchmark curves (SPY + each leg/allocation under both schemes when available).
 - `grid_search_regimes`: iterates across window/step/refit grids and reports metrics, with a `rich` progress bar.
@@ -143,6 +150,17 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
    from src.regime_trading_pipeline import grid_search_regimes
    grid = grid_search_regimes(growth, defensive, windows=(240, 300), steps=(6, 12), refits=(24, 48))
    print(grid.head())
+   ```
+
+5. Analyze performance/plots programmatically:
+
+   ```python
+   from src.performance_toolkit import RegimePerformanceToolkit
+
+   toolkit = RegimePerformanceToolkit(result)
+   print(toolkit.summary_table()[["cumulative_return", "annual_return", "sharpe", "max_drawdown"]])
+   toolkit.plot_equity_and_drawdown()
+   toolkit.plot_rolling_metrics(window=63)
    ```
 
 ## Documentation
