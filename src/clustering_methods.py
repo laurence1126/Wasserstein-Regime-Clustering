@@ -556,3 +556,13 @@ def _prepare_segments(segments: Iterable, standardize: False) -> tuple[List[np.n
         std = 1
     prepared = [np.asarray((seg - mean) / std, dtype=float).ravel() for seg in iterable]
     return prepared, index
+
+
+__all__ = [
+    "WKMeansResult",
+    "WassersteinKMeans",
+    "MKMeansResult",
+    "MomentKMeans",
+    "HMMClusteringResult",
+    "HMMClustering",
+]

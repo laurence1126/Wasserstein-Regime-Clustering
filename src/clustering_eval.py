@@ -364,3 +364,6 @@ class ClusteringMetrics:
             "silhouette_scores": sil_scores,
             "silhouette_alpha": self.alpha_silhouette(segments, labels, alpha=alpha),
         }
+
+
+__all__ = ["MMDCalculator", "ClusteringMetrics"]

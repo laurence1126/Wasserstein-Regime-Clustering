@@ -388,3 +388,15 @@ def download_market_caps(tickers: Sequence[str], start: str, end: str) -> pd.Dat
     market_cap_df.to_csv("../data/market_cap.csv")
 
     return market_cap_df
+
+
+__all__ = [
+    "segment_time_series",
+    "segment_stats",
+    "smooth_labels",
+    "scatter_mean_variance",
+    "plot_regimes_over_price",
+    "load_signal",
+    "download_prices",
+    "download_market_caps",
+]

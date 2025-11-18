@@ -307,6 +307,9 @@ class RegimeRotationStrategy:
         return pd.DataFrame(results, index=idx).sort_values("sharpe", ascending=False)
 
 
+__all__ = ["StrategyResult", "RegimeRotationStrategy"]
+
+
 def main():
     import os
 
