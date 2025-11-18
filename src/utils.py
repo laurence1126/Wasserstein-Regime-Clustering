@@ -120,6 +120,7 @@ def plot_regimes_over_price(
     title="Market Regimes",
     highlight_clusters: Optional[Iterable[int]] = None,
     highlight_min_width: int = 1,
+    highlight_gap: int = 0,
 ):
     """Plot price history with contiguous line segments coloured by regime labels."""
 
@@ -168,6 +169,7 @@ def plot_regimes_over_price(
     span_start = None
     span_end = None
     span_count = 0
+    gap_count = 0
 
     for lab, times_seg, prices_seg in segments:
         color = label_colors[lab]
@@ -177,14 +179,27 @@ def plot_regimes_over_price(
         if lab in highlight_set:
             if span_start is None:
                 span_start = times_seg[0]
+                span_count = 0
+                gap_count = 0
+            elif gap_count > highlight_gap:
+                if span_count >= highlight_min_width:
+                    merged_spans.append((span_start, span_end))
+                span_start = times_seg[0]
+                span_count = 0
+                gap_count = 0
             span_end = times_seg[-1]
             span_count += len(times_seg)
+            gap_count = 0
         else:
-            if span_start is not None and span_count >= highlight_min_width:
-                merged_spans.append((span_start, span_end))
-            span_start = None
-            span_end = None
-            span_count = 0
+            if span_start is not None:
+                gap_count += len(times_seg)
+                if gap_count > highlight_gap:
+                    if span_count >= highlight_min_width:
+                        merged_spans.append((span_start, span_end))
+                    span_start = None
+                    span_end = None
+                    span_count = 0
+                    gap_count = 0
 
     if span_start is not None and span_count >= highlight_min_width:
         merged_spans.append((span_start, span_end))
