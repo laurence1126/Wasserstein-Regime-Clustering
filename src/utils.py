@@ -59,6 +59,42 @@ def segment_stats(segments: List[np.ndarray], use_std=True):
     return means, variances
 
 
+def smooth_labels(series: Iterable, max_gap: int = 0) -> pd.Series:
+    if isinstance(series, pd.Series):
+        index = series.index
+        iterable = series.values
+    else:
+        index = None
+        iterable = series
+
+    if max_gap <= 0 or len(series) == 0:
+        return series
+
+    labels = np.array(iterable, copy=True)
+    n = len(labels)
+    start = 0
+    while start < n:
+        end = start + 1
+        while end < n and labels[end] == labels[start]:
+            end += 1
+        run_len = end - start
+        prev_label = labels[start - 1] if start > 0 else None
+        next_label = labels[end] if end < n else None
+        if run_len <= max_gap:
+            candidates = []
+            if prev_label is not None:
+                candidates.append(prev_label)
+            if next_label is not None:
+                candidates.append(next_label)
+            if candidates and all(lbl == candidates[0] for lbl in candidates):
+                labels[start:end] = candidates[0]
+        start = end
+
+    if index is not None:
+        return pd.Series(labels, index=index)
+    return labels
+
+
 def scatter_mean_variance(segments, labels, title="Segments in Mean–Variance Space", use_std=True, alpha=0.7, s=18, show_centroids=True, legend=True):
     """
     Scatter plot of segments in (mean, variance) or (mean, std) space, colored by cluster labels.

@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from .clustering_methods import WassersteinKMeans, MomentKMeans
-from .utils import segment_time_series, download_prices, download_market_caps, load_signal
+from .utils import segment_time_series, download_prices, download_market_caps, load_signal, smooth_labels
 
 
 @dataclass
@@ -41,6 +41,7 @@ class RegimeRotationStrategy:
         n_clusters: int = 3,
         p_dim: int = 2,
         shift: bool = False,
+        max_label_gap: int = 0,
         weighting: Literal["equal", "market_cap"] = "equal",
         distance: Literal["wasserstein", "moment"] = "wasserstein",
     ) -> None:
@@ -56,6 +57,7 @@ class RegimeRotationStrategy:
         self.n_clusters = n_clusters
         self.p_dim = p_dim
         self.shift = shift
+        self.max_label_gap = int(max_label_gap)
         self.weighting = weighting.lower()
         if self.weighting not in {"equal", "market_cap"}:
             raise ValueError("weighting must be 'equal' or 'market_cap'")
@@ -107,7 +109,10 @@ class RegimeRotationStrategy:
         regime_df["effective_date"] = regime_df.index.normalize()
         # Roll signal to the next day if hour > 16
         regime_df.loc[regime_df.index.hour > 16, "effective_date"] += pd.offsets.BusinessDay(1)
-        self.regime_series = regime_df.groupby("effective_date")["label"].last().sort_index()
+        daily_series = regime_df.groupby("effective_date")["label"].last().sort_index()
+        if self.max_label_gap > 0:
+            daily_series = smooth_labels(daily_series, self.max_label_gap)
+        self.regime_series = daily_series
         self._signal_returns = signal_returns
         return self.regime_series
 
