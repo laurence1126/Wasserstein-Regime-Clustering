@@ -203,9 +203,10 @@ class RegimeRotationStrategy:
         for idx_series in indices[1:]:
             index = index.intersection(idx_series)
         regime_series = self.regime_series.reindex(index, method="ffill").dropna().astype(int)
+        score_series = self.score_series.reindex(index, method="ffill").dropna().astype(float)
         index = index.intersection(regime_series.index)
         regime_series = regime_series.loc[index]
-        score_series = self.score_series.loc[index]
+        score_series = score_series.loc[index]
         spy_returns = self.spy_returns.reindex(index).fillna(0.0)
         leg_returns: Dict[str, pd.Series] = {}
         for leg_name, modes in self.leg_returns_modes.items():
@@ -332,8 +333,41 @@ def main():
 
     os.chdir("./src")
 
-    growth = ["ADBE", "CRM", "LULU", "ORLY", "COST", "TMO", "LIN", "ACN", "MA", "V", "SPGI", "MCO", "DHR", "SHW", "INTU", "NFLX", "NOW", "SNPS", "ISRG", "CDNS"]
-    defensive = ["EPD", "VZ", "O", "GIS", "BMY", "KMB", "CVX", "PSA", "PEP", "XOM", "DUK", "ED", "GPC", "WEC", "LMT", "KO", "PG", "JNJ", "CL", "MCD"]
+    growth = [
+        "IWP",   # iShares Russell Mid-Cap Growth ETF
+        "IWY",   # iShares Russell Top 200 Growth ETF
+        "QUAL",  # iShares MSCI USA Quality Factor ETF
+        "QQQ",   # Invesco QQQ Trust (Nasdaq-100)
+        "RPG",   # Invesco S&P 500 Pure Growth ETF
+        "SCHG",  # Schwab U.S. Large-Cap Growth ETF
+        "SCHM",  # Schwab U.S. Mid-Cap ETF
+        "VBK",   # Vanguard Small-Cap Growth ETF
+        "VGT",   # Vanguard Information Technology Index Fund ETF
+        "VUG",   # Vanguard Growth ETF
+    ]
+    # Retrieved from https://www.simplysafedividends.com/world-of-dividends/posts/939-20-best-recession-proof-dividend-stocks-for-a-2025-downturn
+    defensive = [
+        "BMY",  # Bristol-Myers Squibb Co. (pharmaceuticals)
+        "CL",   # Colgate-Palmolive Co. (consumer staples – personal care)
+        "CVX",  # Chevron Corp. (integrated oil & gas)
+        "DUK",  # Duke Energy Corp. (regulated electric utility)
+        "ED",   # Consolidated Edison, Inc. (regulated utility)
+        "EPD",  # Enterprise Products Partners L.P. (midstream energy MLP)
+        "GIS",  # General Mills, Inc. (packaged foods)
+        "GPC",  # Genuine Parts Co. (industrial/auto parts distributor)
+        "JNJ",  # Johnson & Johnson (healthcare & consumer health)
+        "KMB",  # Kimberly-Clark Corp. (tissue & hygiene products)
+        "KO",   # Coca-Cola Co. (beverages)
+        "LMT",  # Lockheed Martin Corp. (defense & aerospace)
+        "MCD",  # McDonald's Corp. (global quick-service restaurants)
+        "O",    # Realty Income Corp. (net-lease REIT, “monthly dividend”)
+        "PEP",  # PepsiCo, Inc. (snacks & beverages)
+        "PG",   # Procter & Gamble Co. (household & personal products)
+        "PSA",  # Public Storage (self-storage REIT)
+        "VZ",   # Verizon Communications Inc. (telecom)
+        "WEC",  # WEC Energy Group, Inc. (regulated utility)
+        "XOM",  # Exxon Mobil Corp. (integrated oil & gas)
+    ]
 
     strategy = RegimeRotationStrategy(
         growth_tickers=growth,
