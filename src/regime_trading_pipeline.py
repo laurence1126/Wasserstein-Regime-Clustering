@@ -31,6 +31,7 @@ class RegimeRotationStrategy:
         self,
         growth_tickers: Sequence[str],
         defensive_tickers: Sequence[str],
+        extra_legs: Optional[Dict[str, Sequence[str]]] = None,
         start_date: str = "2014-05-25",  # 10 yrs data
         end_date: str = "2025-11-01",
         signal_csv: str | Path = "../data/SPX_hourly.csv",
@@ -66,9 +67,9 @@ class RegimeRotationStrategy:
             raise ValueError("distance must be 'wasserstein' or 'moment'")
         self.regime_series: Optional[pd.Series] = None
         self._signal_returns: Optional[pd.Series] = None
-        self.growth_returns_modes: Dict[str, pd.Series] = {}
-        self.defensive_returns_modes: Dict[str, pd.Series] = {}
         self.spy_returns: Optional[pd.Series] = None
+        self.extra_legs = {name: list(ticks) for name, ticks in (extra_legs or {}).items()}
+        self.leg_returns_modes: Dict[str, Dict[str, pd.Series]] = {}
 
     def fit_kmeans(self) -> pd.Series:
         signal_returns = load_signal(self.signal_csv, self.start_date, self.end_date)["Return"]
@@ -121,25 +122,34 @@ class RegimeRotationStrategy:
             raise RuntimeError("Call fit_wkmeans() before build_returns().")
         start = self._signal_returns.index.min().strftime("%Y-%m-%d")
         end = self._signal_returns.index.max().strftime("%Y-%m-%d")
-        tickers = sorted(set(self.growth_tickers) | set(self.defensive_tickers) | {"SPY"})
+        all_leg_tickers = {
+            "growth": self.growth_tickers,
+            "defensive": self.defensive_tickers,
+            **self.extra_legs,
+        }
+        ticker_set: set[str] = {"SPY"}
+        for tickers in all_leg_tickers.values():
+            ticker_set.update(tickers)
+        tickers = sorted(ticker_set)
         close_prices = download_prices(tickers, start=start, end=end, field="Close")
         returns = close_prices.pct_change().fillna(0.0)
+
+        market_caps = None
+        if self.weighting == "market_cap":
+            try:
+                market_caps = download_market_caps(tickers, start=start, end=end)
+            except Exception as exc:
+                if self.weighting == "market_cap":
+                    raise RuntimeError("Can not download market cap data!")
+
+        if market_caps is not None and not market_caps.empty:
+            market_caps = market_caps.reindex(returns.index).ffill()
 
         def _equal_weight(series_names: Sequence[str]) -> pd.Series:
             cols = [col for col in series_names if col in returns.columns]
             if not cols:
                 raise ValueError("No overlapping tickers for returns calculation.")
             return returns[cols].mean(axis=1)
-
-        market_caps = None
-        try:
-            market_caps = download_market_caps(tickers, start=start, end=end)
-        except Exception as exc:
-            if self.weighting == "market_cap":
-                raise RuntimeError("Can not download market cap data!")
-
-        if market_caps is not None and not market_caps.empty:
-            market_caps = market_caps.reindex(returns.index).ffill()
 
         def _mcap_weight(series_names: Sequence[str]) -> Optional[pd.Series]:
             if market_caps is None or market_caps.empty:
@@ -152,17 +162,19 @@ class RegimeRotationStrategy:
             weighted_returns = (returns[cols] * weights).sum(axis=1)
             return weighted_returns
 
-        growth_equal = _equal_weight(self.growth_tickers)
-        defensive_equal = _equal_weight(self.defensive_tickers)
-        growth_mcap = _mcap_weight(self.growth_tickers)
-        defensive_mcap = _mcap_weight(self.defensive_tickers)
+        leg_returns_modes: Dict[str, Dict[str, pd.Series]] = {}
+        for leg_name, leg_tickers in all_leg_tickers.items():
+            leg_modes = {"equal": _equal_weight(leg_tickers)}
+            if market_caps is not None:
+                mc = _mcap_weight(leg_tickers)
+                if mc is not None:
+                    leg_modes["market_cap"] = mc
+            leg_returns_modes[leg_name] = leg_modes
 
-        self.growth_returns_modes = {"equal": growth_equal}
-        self.defensive_returns_modes = {"equal": defensive_equal}
-        if growth_mcap is not None:
-            self.growth_returns_modes["market_cap"] = growth_mcap
-        if defensive_mcap is not None:
-            self.defensive_returns_modes["market_cap"] = defensive_mcap
+        if "growth" not in leg_returns_modes or "defensive" not in leg_returns_modes:
+            raise RuntimeError("Growth and defensive legs must have valid return series.")
+
+        self.leg_returns_modes = leg_returns_modes
 
         self.spy_returns = returns["SPY"]
 
@@ -176,50 +188,46 @@ class RegimeRotationStrategy:
     ) -> StrategyResult:
         if self.regime_series is None:
             raise RuntimeError("No regime labels. Call fit_wkmeans() first.")
-        if self.growth_returns_modes is None or self.defensive_returns_modes is None or self.spy_returns is None:
+        if not self.leg_returns_modes or self.spy_returns is None:
             raise RuntimeError("Call build_returns() before backtest().")
 
-        index = (
-            self.growth_returns_modes["equal"].index.intersection(self.defensive_returns_modes["equal"].index).intersection(self.spy_returns.index)
-        )
+        indices = [modes["equal"].index for modes in self.leg_returns_modes.values()] + [self.spy_returns.index]
+        index = indices[0]
+        for idx_series in indices[1:]:
+            index = index.intersection(idx_series)
         regime_series = self.regime_series.reindex(index, method="ffill").dropna().astype(int)
         index = index.intersection(regime_series.index)
         regime_series = regime_series.loc[index]
         spy_returns = self.spy_returns.reindex(index).fillna(0.0)
-        growth_equal = self.growth_returns_modes["equal"].reindex(index).fillna(0.0)
-        defensive_equal = self.defensive_returns_modes["equal"].reindex(index).fillna(0.0)
-        growth_mcap = self.growth_returns_modes.get("market_cap")
-        defensive_mcap = self.defensive_returns_modes.get("market_cap")
-        if growth_mcap is not None:
-            growth_mcap = growth_mcap.reindex(index).fillna(0.0)
-        if defensive_mcap is not None:
-            defensive_mcap = defensive_mcap.reindex(index).fillna(0.0)
+        leg_returns: Dict[str, pd.Series] = {}
+        for leg_name, modes in self.leg_returns_modes.items():
+            series = modes.get(self.weighting)
+            if series is None:
+                continue
+            leg_returns[leg_name] = series.reindex(index).fillna(0.0)
+        if not leg_returns:
+            raise RuntimeError("No leg return series available for backtest.")
 
-        weights = pd.DataFrame(index=index, columns=["growth", "defensive"], data=0.0)
+        weights = pd.DataFrame(index=index, columns=leg_returns.keys(), data=0.0)
         for regime, alloc in allocations.items():
             mask = regime_series == regime
             for leg, val in alloc.items():
+                if leg not in weights.columns:
+                    raise KeyError(f"Allocation leg '{leg}' not available. Available legs: {list(weights.columns)}")
                 weights.loc[mask, leg] = val
 
         if self.shift:
             weights = weights.shift(1).fillna(0)
 
-        if self.weighting == "equal":
-            strategy_returns = weights["growth"] * growth_equal + weights["defensive"] * defensive_equal
-            benchmark_curve = {
-                "GrowthOnly": (1 + growth_equal).cumprod(),
-                "EqualWeight": (1 + 0.5 * growth_equal + 0.5 * defensive_equal).cumprod(),
-                "DefensiveOnly": (1 + defensive_equal).cumprod(),
-                "SPY": (1 + spy_returns).cumprod(),
-            }
-        elif self.weighting == "market_cap":
-            strategy_returns = weights["growth"] * growth_mcap + weights["defensive"] * defensive_mcap
-            benchmark_curve = {
-                "GrowthOnly": (1 + growth_mcap).cumprod(),
-                "EqualWeight": (1 + 0.5 * growth_mcap + 0.5 * defensive_mcap).cumprod(),
-                "DefensiveOnly": (1 + defensive_mcap).cumprod(),
-                "SPY": (1 + spy_returns).cumprod(),
-            }
+        strategy_returns = sum(weights[col] * leg_returns[col] for col in weights.columns)
+        benchmark_curve = {}
+        if "growth" in leg_returns:
+            benchmark_curve["GrowthOnly"] = (1 + leg_returns["growth"]).cumprod()
+        if "growth" in leg_returns and "defensive" in leg_returns:
+            benchmark_curve["EqualWeight"] = (1 + 0.5 * leg_returns["growth"] + 0.5 * leg_returns["defensive"]).cumprod()
+        if "defensive" in leg_returns:
+            benchmark_curve["DefensiveOnly"] = (1 + leg_returns["defensive"]).cumprod()
+        benchmark_curve["SPY"] = (1 + spy_returns).cumprod()
         equity_curve = (1 + strategy_returns).cumprod()
 
         metrics = self._compute_metrics(strategy_returns)
