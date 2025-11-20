@@ -110,7 +110,7 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 
 </p>
 
-**Rotation strategy equity curve (Oct 2020–Oct 2025).** `RegimeRotationStrategy` re-fits WK-means every 24 trading days on rolling 360 hours (15 days) windows, then allocates between a growth basket of ETFs and defensive basket of stocks using equal weights. The top panel benchmarks the regime-aware allocation against SPY and static growth/defensive portfolios, highlighting max drawdown in red; the lower strip shows the predicted regimes (0 = calm growth, 1 = transition, 2 = defensive) that drive allocation switches. [Source: `trading.ipynb`](jupyter/trading.ipynb)
+**Rotation strategy equity curve (Oct 2020–Oct 2025).** `RegimeRotationStrategy` re-fits WK-means every 48 trading days on rolling 360 hours (15 trading days) windows (`step=12`), then allocates between a growth basket of ETFs and defensive basket of stocks using equal weights. The top panel benchmarks the regime-aware allocation against SPY and static growth/defensive portfolios, highlighting max drawdown in red; the lower strip shows the predicted regimes (0 = calm growth, 1 = transition, 2 = defensive) that drive allocation switches. [Source: `trading.ipynb`](jupyter/trading.ipynb)
 
 <p align="center">
   <img src="fig/equity_curve.png" alt="Strategy equity curve" width="90%">
