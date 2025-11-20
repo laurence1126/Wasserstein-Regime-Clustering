@@ -110,23 +110,23 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
 
 </p>
 
-**Rotation strategy equity curve (Oct 2020–Oct 2025).** `RegimeRotationStrategy` re-fits WK-means every 24 trading days on rolling 360 hours (15 days) windows, then allocates between a growth basket (NFLX, LULU, COST) and defensive basket (KO, PG, JNJ) using equal weights. The top panel benchmarks the regime-aware allocation against SPY and static growth/defensive portfolios, highlighting max drawdown in red; the lower strip shows the predicted regimes (0 = calm growth, 1 = transition, 2 = defensive) that drive allocation switches. [Source: `trading.ipynb`](jupyter/trading.ipynb)
+**Rotation strategy equity curve (Oct 2020–Oct 2025).** `RegimeRotationStrategy` re-fits WK-means every 24 trading days on rolling 360 hours (15 days) windows, then allocates between a growth basket of ETFs and defensive basket of stocks using equal weights. The top panel benchmarks the regime-aware allocation against SPY and static growth/defensive portfolios, highlighting max drawdown in red; the lower strip shows the predicted regimes (0 = calm growth, 1 = transition, 2 = defensive) that drive allocation switches. [Source: `trading.ipynb`](jupyter/trading.ipynb)
 
 <p align="center">
   <img src="fig/equity_curve.png" alt="Strategy equity curve" width="90%">
 </p>
 
-**Backtest summary statistics.** Same run as the equity-curve figure, summarizing cumulative/annual returns, annualized volatility, Sharpe, and max drawdown for each sleeve.
+**Backtest summary statistics.** Same run as the equity-curve figure, now summarizing cumulative return, annualized return/volatility, Sharpe, Sortino, max drawdown, hit rate, average up/down day, skew, and kurtosis for each sleeve.
 
 <p align="center">
 
-| Portfolio     | cumulative_return | annual_return | annual_volatility |    sharpe | max_drawdown |
-| ------------- | ----------------: | ------------: | ----------------: | --------: | -----------: |
-| Strategy      |         **1.822** |     **0.231** |             0.147 | **1.578** |   **-0.119** |
-| GrowthOnly    |             0.937 |         0.142 |             0.208 |     0.683 |       -0.324 |
-| EqualWeight   |             0.810 |         0.126 |             0.141 |     0.897 |       -0.170 |
-| DefensiveOnly |             0.616 |         0.101 |         **0.122** |     0.830 |       -0.126 |
-| SPY           |             1.233 |         0.175 |             0.172 |     1.020 |       -0.245 |
+| Portfolio     | cum_return | annual_return | annual_vol | sharpe | sortino |    max_dd | hit_rate | avg_up_day | avg_down_day |   skew | kurtosis |
+| ------------- | ---------: | ------------: | ---------: | -----: | ------: | --------: | -------: | ---------: | -----------: | -----: | -------: |
+| Strategy      |  190.3905% |      23.8698% |   14.1898% |  1.682 |  2.3713 | -11.9491% | 55.9363% |    0.6894% |     -0.6732% | -0.388 |   1.4535 |
+| GrowthOnly    |  103.7758% |      15.3657% |   20.5021% |  0.749 |  1.0540 | -32.3124% | 53.6255% |    0.9312% |     -0.9365% |  0.158 |   5.5369 |
+| EqualWeight   |   85.8100% |      13.2474% |   13.7500% |  0.963 |  1.3407 | -16.6554% | 54.5817% |    0.6182% |     -0.6259% |  0.009 |   5.5878 |
+| DefensiveOnly |   61.5923% |      10.1159% |   12.1861% |  0.830 |  1.2084 | -12.5564% | 53.8645% |    0.5756% |     -0.5827% | -0.213 |   1.9763 |
+| SPY           |  123.3194% |      17.5069% |   17.1587% |  1.020 |  1.4052 | -24.4964% | 54.6614% |    0.7634% |     -0.7690% |  0.289 |   9.0096 |
 
 </p>
 
@@ -146,6 +146,7 @@ Toolkit for regime detection on SPX intraday returns using Wasserstein K-means p
    or import `RegimeRotationStrategy` inside notebooks/scripts.
 
 4. Optional hyper-parameter tuning:
+
    ```python
    from src.regime_trading_pipeline import grid_search_regimes
    grid = grid_search_regimes(growth, defensive, windows=(240, 300), steps=(6, 12), refits=(24, 48))

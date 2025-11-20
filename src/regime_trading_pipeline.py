@@ -244,7 +244,7 @@ class RegimeRotationStrategy:
     def _compute_metrics(returns: pd.Series, periods_per_year: int = 252) -> Dict[str, float]:
         cumulative = (1 + returns).prod() - 1.0
         ann_return = (1 + cumulative) ** (periods_per_year / len(returns)) - 1.0 if len(returns) else 0.0
-        ann_vol = returns.std(ddof=0) * np.sqrt(periods_per_year)
+        ann_vol = returns.std(ddof=1) * np.sqrt(periods_per_year)
         sharpe = ann_return / ann_vol if ann_vol > 0 else np.nan
         curve = (1 + returns).cumprod()
         drawdown = curve / curve.cummax() - 1.0
