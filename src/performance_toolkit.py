@@ -35,7 +35,9 @@ class RegimePerformanceToolkit:
         self.benchmark_returns = {name: _prep_returns(series) for name, series in self.benchmark_curves.items()}
         self.weights = self.result.weights.reindex(self.equity_curve.index).ffill().fillna(0.0)
         signal = self.result.signal_series.reindex(self.equity_curve.index, method="ffill")
+        scores = self.result.score_series.reindex(self.equity_curve.index, method="ffill")
         self.signal_series = signal.astype(int) if signal.notna().any() else signal
+        self.score_series = scores.astype(float) if scores.notna().any() else scores
 
     # ------------------------------------------------------------------
     # Metric tables
@@ -176,6 +178,19 @@ class RegimePerformanceToolkit:
 
         # bottom panel: signal/weight series
         ax_weight.plot(self.signal_series.index, self.signal_series, color=CLUSTER_PALETTE[1], lw=1)
+        ax_score = ax_weight.twinx()
+        ax_score.plot(self.score_series.index, self.score_series, color=CLUSTER_PALETTE[4], lw=1, alpha=0.8)
+        miny, _ = ax_score.get_ylim()
+        ax_score.fill_between(
+            self.score_series.index,
+            self.score_series,
+            miny,
+            color=CLUSTER_PALETTE[4],
+            alpha=0.15,
+        )
+        ax_weight.set_zorder(ax_score.get_zorder() + 1)
+        ax_weight.patch.set_alpha(0)
+        ax_score.set_ylabel("Distance Score")
         ax_weight.set_ylabel("Regimes")
         ax_weight.set_xlabel("Date")
         ax_weight.grid(alpha=0.6)

@@ -162,14 +162,15 @@ class WassersteinKMeans:
         if len(segments[0]) != len(self.centroids_[0]):
             raise ValueError("Input samples must have the same length as centroids.")
 
-        labels = []
+        labels, scores = [], []
         for sample in segments:
             distances = [self._wasserstein_empirical(sample, c, p_dim=self.p_dim) for c in self.centroids_]
             labels.append(np.argmin(distances))
-        labels = np.array(labels)
+            scores.append(1 - (np.min(distances) / np.sum(distances)) ** (1 / self.p_dim))
+        labels, scores = np.array(labels), np.array(scores)
         if index is not None:
-            return pd.Series(labels, index=index)
-        return labels
+            return pd.Series(labels, index=index), pd.Series(scores, index=index)
+        return labels, scores
 
     def plot_centroids_cdf(self, title="WK-means Centroids CDFs"):
         """
@@ -412,9 +413,10 @@ class MomentKMeans:
         F = self._build_features(segments)
         d2 = ((F[:, None, :] - self.centroids_[None, :, :]) ** 2).sum(axis=2)
         preds = d2.argmin(axis=1)
+        scores = 1 - (np.min(d2, axis=1) / np.sum(d2, axis=1)) ** (1 / self.p_dim)
         if index is not None:
-            return pd.Series(preds, index=index)
-        return preds
+            return pd.Series(preds, index=index), pd.Series(scores, index=index)
+        return preds, scores
 
 
 class _StableGaussianHMM(GaussianHMM):

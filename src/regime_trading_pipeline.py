@@ -19,6 +19,7 @@ class StrategyResult:
     equity_curve: pd.Series
     benchmarks: Dict[str, pd.Series]
     signal_series: pd.Series
+    score_series: pd.Series
     weights: pd.DataFrame
     metrics: Dict[str, float]
     allocations: Dict[int, Dict[str, float]]
@@ -66,6 +67,7 @@ class RegimeRotationStrategy:
         if self.distance not in {"wasserstein", "moment"}:
             raise ValueError("distance must be 'wasserstein' or 'moment'")
         self.regime_series: Optional[pd.Series] = None
+        self.score_series: Optional[pd.Series] = None
         self._signal_returns: Optional[pd.Series] = None
         self.spy_returns: Optional[pd.Series] = None
         self.extra_legs = {name: list(ticks) for name, ticks in (extra_legs or {}).items()}
@@ -78,6 +80,7 @@ class RegimeRotationStrategy:
             raise ValueError("Not enough segments to cover burn-in period")
 
         labels: List[Optional[int]] = [None] * len(segments)
+        scores: List[Optional[float]] = [None] * len(segments)
         idx = self.burn_in_segments
         prev_centroids: Optional[List[np.ndarray]] = None
         while idx < len(segments):
@@ -100,13 +103,16 @@ class RegimeRotationStrategy:
                 )
                 model.fit(history)
             end = min(idx + self.refit_every, len(segments))
-            preds = model.predict(segments.iloc[idx:end].tolist())
-            for offset, lbl in enumerate(preds):
-                labels[idx + offset] = int(lbl)
+            preds, sc = model.predict(segments.iloc[idx:end].tolist())
+            for offset in range(len(preds)):
+                labels[idx + offset] = int(preds[offset])
+                scores[idx + offset] = sc[offset]
             idx = end
 
         regime_series = pd.Series(labels, index=segments.index, dtype="float").dropna().astype(int)
+        scores_series = pd.Series(scores, index=segments.index, dtype="float").dropna().astype(float)
         regime_df = regime_series.to_frame(name="label")
+        regime_df["score"] = scores_series
         regime_df["effective_date"] = regime_df.index.normalize()
         # Roll signal to the next day if hour > 16
         regime_df.loc[regime_df.index.hour > 16, "effective_date"] += pd.offsets.BusinessDay(1)
@@ -114,6 +120,7 @@ class RegimeRotationStrategy:
         if self.max_label_gap > 0:
             daily_series = smooth_labels(daily_series, self.max_label_gap)
         self.regime_series = daily_series
+        self.score_series = regime_df.groupby("effective_date")["score"].last().sort_index()
         self._signal_returns = signal_returns
         return self.regime_series
 
@@ -198,6 +205,7 @@ class RegimeRotationStrategy:
         regime_series = self.regime_series.reindex(index, method="ffill").dropna().astype(int)
         index = index.intersection(regime_series.index)
         regime_series = regime_series.loc[index]
+        score_series = self.score_series.loc[index]
         spy_returns = self.spy_returns.reindex(index).fillna(0.0)
         leg_returns: Dict[str, pd.Series] = {}
         for leg_name, modes in self.leg_returns_modes.items():
@@ -235,6 +243,7 @@ class RegimeRotationStrategy:
             equity_curve=equity_curve,
             benchmarks=benchmark_curve,
             signal_series=regime_series,
+            score_series=score_series,
             weights=weights,
             metrics=metrics,
             allocations=allocations
