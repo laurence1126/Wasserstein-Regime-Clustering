@@ -266,6 +266,7 @@ def load_signal(signal_path: str | Path, start_date: str = None, end_date: str =
     df["timestamp"] = pd.to_datetime(df["Date"] + " " + df["Hour"], format="%d/%m/%Y %H:%M", dayfirst=True)
     df = df.drop(columns=["Date", "Hour"]).set_index("timestamp").sort_index()
     df["Return"] = df["Close"].pct_change()
+    df["log_Return"] = np.log1p(df["Return"])
 
     start_date = start_date or df.index[0]
     end_date = end_date or df.index[-1]

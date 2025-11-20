@@ -46,6 +46,7 @@ class RegimeRotationStrategy:
         max_label_gap: int = 0,
         weighting: Literal["equal", "market_cap"] = "equal",
         distance: Literal["wasserstein", "moment"] = "wasserstein",
+        use_log: bool = False
     ) -> None:
         self.growth_tickers = list(growth_tickers)
         self.defensive_tickers = list(defensive_tickers)
@@ -66,6 +67,7 @@ class RegimeRotationStrategy:
         self.distance = distance.lower()
         if self.distance not in {"wasserstein", "moment"}:
             raise ValueError("distance must be 'wasserstein' or 'moment'")
+        self.use_log = use_log
         self.regime_series: Optional[pd.Series] = None
         self.score_series: Optional[pd.Series] = None
         self._signal_returns: Optional[pd.Series] = None
@@ -74,7 +76,11 @@ class RegimeRotationStrategy:
         self.leg_returns_modes: Dict[str, Dict[str, pd.Series]] = {}
 
     def fit_kmeans(self) -> pd.Series:
-        signal_returns = load_signal(self.signal_csv, self.start_date, self.end_date)["Return"]
+        signal_returns = (
+            load_signal(self.signal_csv, self.start_date, self.end_date)["log_Return"]
+            if self.use_log
+            else load_signal(self.signal_csv, self.start_date, self.end_date)["Return"]
+        )
         segments = segment_time_series(signal_returns, self.window, self.step)
         if len(segments) <= self.burn_in_segments:
             raise ValueError("Not enough segments to cover burn-in period")
@@ -299,7 +305,8 @@ class RegimeRotationStrategy:
                     refit_every=refit,
                     p_dim=p,
                     burn_in_segments=burn_in,
-                    shift=True
+                    shift=True,
+                    use_log=True,
                 )
                 try:
                     strategy.fit_kmeans()
@@ -376,7 +383,7 @@ def main():
         p_dim=2,                  # W2 distance
         window=360,               # approx. 15 days hourly return
         step=12,                  # half a day
-        refit_every=48,           # refit MK-means every 24 days
+        refit_every=96,           # refit MK-means every 48 days
         shift=True                # avoid using future information
     )
 
