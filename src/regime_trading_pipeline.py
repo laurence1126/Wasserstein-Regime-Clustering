@@ -81,10 +81,10 @@ class RegimeRotationStrategy:
 
         labels: List[Optional[int]] = [None] * len(segments)
         scores: List[Optional[float]] = [None] * len(segments)
-        idx = self.burn_in_segments
+        idx = int(self.burn_in_segments - 1 * (self.refit_every == 0))
         prev_centroids: Optional[List[np.ndarray]] = None
         while idx < len(segments):
-            history = segments.iloc[idx - self.burn_in_segments : idx].tolist()
+            history = segments.iloc[idx - self.burn_in_segments + 1 * (self.refit_every == 0) : idx + 1 * (self.refit_every == 0)].tolist()
             if self.distance == "wasserstein":
                 model = WassersteinKMeans(
                     n_clusters=self.n_clusters,
@@ -102,7 +102,7 @@ class RegimeRotationStrategy:
                     random_state=42,
                 )
                 model.fit(history)
-            end = min(idx + self.refit_every, len(segments))
+            end = min(idx + max(self.refit_every, 1), len(segments))
             preds, sc = model.predict(segments.iloc[idx:end].tolist())
             for offset in range(len(preds)):
                 labels[idx + offset] = int(preds[offset])
