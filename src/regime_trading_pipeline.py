@@ -279,6 +279,7 @@ class RegimeRotationStrategy:
     def grid_search_regimes(
         growth_tickers: Sequence[str],
         defensive_tickers: Sequence[str],
+        extra_legs: Optional[Dict[str, Sequence[str]]] = {"gold": ["GLD"]},
         start_date: str = "2014-05-25",
         end_date: str = "2025-11-01",
         p_dims=(2,),
@@ -298,6 +299,7 @@ class RegimeRotationStrategy:
                 strategy = RegimeRotationStrategy(
                     growth_tickers=growth_tickers,
                     defensive_tickers=defensive_tickers,
+                    extra_legs=extra_legs,
                     start_date=start_date,
                     end_date=end_date,
                     window=win,
@@ -315,7 +317,7 @@ class RegimeRotationStrategy:
                         allocations={
                             0: {"growth": 1.0, "defensive": 0.0},
                             1: {"growth": 0.0, "defensive": 1.0},
-                            2: {"growth": 0.0, "defensive": 1.0},
+                            2: {"growth": 0.0, "defensive": 0.7, "gold": 0.3},
                         },
                     )
                 except Exception as exc:
