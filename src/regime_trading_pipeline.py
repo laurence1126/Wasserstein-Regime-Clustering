@@ -33,26 +33,28 @@ class RegimeRotationStrategy:
         growth_tickers: Sequence[str],
         defensive_tickers: Sequence[str],
         extra_legs: Optional[Dict[str, Sequence[str]]] = None,
-        start_date: str = "2014-05-25",  # 10 yrs data
-        end_date: str = "2025-11-01",
+        start_date: str = "2010-06-10",
+        end_date: str = "2026-05-22",
         signal_csv: str | Path = "../data/SPX_hourly.csv",
+        contract_map_csv: str | Path = "../data/ES_map.csv",
+        p_dim: int = 2,
+        n_clusters: int = 3,
         window: int = 24,
         step: int = 6,
         burn_in_segments: int = 700,  # approx. 2 yrs
         refit_every: int = 48,
-        n_clusters: int = 3,
-        p_dim: int = 2,
-        shift: bool = False,
         max_label_gap: int = 0,
+        shift: bool = True,
+        use_log: bool = True,
         weighting: Literal["equal", "market_cap"] = "equal",
         distance: Literal["wasserstein", "moment"] = "wasserstein",
-        use_log: bool = False
     ) -> None:
         self.growth_tickers = list(growth_tickers)
         self.defensive_tickers = list(defensive_tickers)
         self.start_date = start_date
         self.end_date = end_date
         self.signal_csv = Path(signal_csv)
+        self.contract_map_csv = Path(contract_map_csv)
         self.window = window
         self.step = step
         self.burn_in_segments = burn_in_segments
@@ -77,9 +79,9 @@ class RegimeRotationStrategy:
 
     def fit_kmeans(self) -> pd.Series:
         signal_returns = (
-            load_signal(self.signal_csv, self.start_date, self.end_date)["log_Return"]
+            load_signal(self.signal_csv, self.start_date, self.end_date, self.contract_map_csv)["log_Return"]
             if self.use_log
-            else load_signal(self.signal_csv, self.start_date, self.end_date)["Return"]
+            else load_signal(self.signal_csv, self.start_date, self.end_date, self.contract_map_csv)["Return"]
         )
         segments = segment_time_series(signal_returns, self.window, self.step)
         if len(segments) <= self.burn_in_segments:
@@ -253,7 +255,7 @@ class RegimeRotationStrategy:
             score_series=score_series,
             weights=weights,
             metrics=metrics,
-            allocations=allocations
+            allocations=allocations,
         )
 
     @staticmethod
@@ -280,8 +282,8 @@ class RegimeRotationStrategy:
         growth_tickers: Sequence[str],
         defensive_tickers: Sequence[str],
         extra_legs: Optional[Dict[str, Sequence[str]]] = {"gold": ["GLD"]},
-        start_date: str = "2014-05-25",
-        end_date: str = "2025-11-01",
+        start_date: str = "2010-06-10",
+        end_date: str = "2026-05-22",
         p_dims=(2,),
         windows=(360,),
         steps=(12,),

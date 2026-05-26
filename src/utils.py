@@ -260,11 +260,70 @@ def plot_regimes_over_price(
     plt.show()
 
 
-def load_signal(signal_path: str | Path, start_date: str = None, end_date: str = None) -> pd.DataFrame:
-    names = ["Date", "Hour", "Open", "High", "Low", "Close", "Volume"]
-    df = pd.read_csv(signal_path, sep=";", names=names)
-    df["timestamp"] = pd.to_datetime(df["Date"] + " " + df["Hour"], format="%d/%m/%Y %H:%M", dayfirst=True)
-    df = df.drop(columns=["Date", "Hour"]).set_index("timestamp").sort_index()
+def _load_contract_map(contract_map_path: str | Path) -> pd.DataFrame:
+    contract_map = pd.read_csv(contract_map_path, header=0)
+    column_lookup = {column.lower(): column for column in contract_map.columns}
+    if "timestamp" not in column_lookup or "symbol" not in column_lookup:
+        raise ValueError("Contract map must contain timestamp and Symbol columns")
+
+    contract_map = contract_map[[column_lookup["timestamp"], column_lookup["symbol"]]].rename(
+        columns={column_lookup["timestamp"]: "timestamp", column_lookup["symbol"]: "MappedSymbol"}
+    )
+    timestamps = pd.to_datetime(contract_map["timestamp"])
+    if timestamps.dt.tz is not None:
+        timestamps = timestamps.dt.tz_convert("America/New_York").dt.tz_localize(None)
+    contract_map["timestamp"] = timestamps
+    return contract_map.dropna(subset=["timestamp", "MappedSymbol"]).sort_values("timestamp").drop_duplicates(subset=["timestamp"], keep="last")
+
+
+def _select_main_contract(df: pd.DataFrame, contract_map: pd.DataFrame) -> pd.DataFrame:
+    rows = df.reset_index().sort_values("timestamp", kind="mergesort")
+    timestamp_map = pd.DataFrame({"timestamp": rows["timestamp"].drop_duplicates().sort_values()})
+    timestamp_map = pd.merge_asof(timestamp_map, contract_map, on="timestamp", direction="backward")
+    rows = rows.merge(timestamp_map, on="timestamp", how="left")
+
+    matched_rows = rows[rows["Symbol"] == rows["MappedSymbol"]]
+    mapped_selection = matched_rows.sort_values(["timestamp", "Volume", "Symbol"], ascending=[True, False, True], kind="mergesort").drop_duplicates(
+        subset=["timestamp"], keep="first"
+    )
+
+    fallback_rows = rows[~rows["timestamp"].isin(mapped_selection["timestamp"])]
+    fallback_selection = fallback_rows.sort_values(
+        ["timestamp", "Volume", "Symbol"], ascending=[True, False, True], kind="mergesort"
+    ).drop_duplicates(subset=["timestamp"], keep="first")
+
+    selected = pd.concat([mapped_selection, fallback_selection], axis=0).drop(columns=["MappedSymbol"]).set_index("timestamp").sort_index()
+    selected.index.name = "timestamp"
+    return selected
+
+
+def generate_ES_map(signal_path: str | Path, output_path: str | Path = "../data/ES_map.csv") -> bool:
+    df = pd.read_csv(signal_path, header=0, usecols=["ts_event", "volume", "symbol"])
+    df = df.rename(columns={"ts_event": "timestamp"}).set_index("timestamp")
+    df.index = pd.to_datetime(df.index, utc=True).tz_convert("America/New_York").tz_localize(None)
+    df = df.rename(columns={x: x.capitalize() for x in df.columns})
+
+    df = df[~df["Symbol"].astype(str).str.contains("-", na=False)].copy()
+    df = df.sort_values(["Volume", "Symbol"], ascending=[False, True], kind="mergesort")
+    df = df[~df.index.duplicated(keep="first")].sort_index()
+
+    df["Symbol"].dropna().to_csv(output_path, index=True)
+    return True
+
+
+def load_signal(signal_path: str | Path, start_date: str = None, end_date: str = None, contract_map_path: str | Path | None = None) -> pd.DataFrame:
+    df = pd.read_csv(signal_path, header=0, usecols=["ts_event", "open", "high", "low", "close", "volume", "symbol"])
+    df = df.rename(columns={"ts_event": "timestamp"}).set_index("timestamp")
+    df.index = pd.to_datetime(df.index, utc=True).tz_convert("America/New_York").tz_localize(None)
+    df = df.rename(columns={x: x.capitalize() for x in df.columns})
+
+    df = df[~df["Symbol"].astype(str).str.contains("-", na=False)].copy()
+    if contract_map_path is not None and df.index.has_duplicates:
+        df = _select_main_contract(df, _load_contract_map(contract_map_path))
+    else:
+        df = df.sort_values(["Volume", "Symbol"], ascending=[False, True], kind="mergesort")
+        df = df[~df.index.duplicated(keep="first")].sort_index()
+
     df["Return"] = df["Close"].pct_change()
     df["log_Return"] = np.log1p(df["Return"])
 
@@ -397,6 +456,7 @@ __all__ = [
     "smooth_labels",
     "scatter_mean_variance",
     "plot_regimes_over_price",
+    "generate_ES_map",
     "load_signal",
     "download_prices",
     "download_market_caps",
